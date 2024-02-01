@@ -29,6 +29,7 @@ namespace Apache.Arrow.Adbc.Client
     {
         private AdbcStatement adbcStatement;
         private int _timeout = 30;
+        private readonly AdbcParameterCollection _parameters = new AdbcParameterCollection();
 
         /// <summary>
         /// Overloaded. Initializes <see cref="AdbcCommand"/>.
@@ -79,6 +80,10 @@ namespace Apache.Arrow.Adbc.Client
         /// </summary>
         public AdbcStatement AdbcStatement => this.adbcStatement;
 
+        /// <summary>
+        /// Gets or sets the <see cref="DecimalBehavior"/> associated with
+        /// this <see cref="AdbcCommand"/>.
+        /// </summary>
         public DecimalBehavior DecimalBehavior { get; set; }
 
         public override string CommandText
@@ -194,6 +199,13 @@ namespace Apache.Arrow.Adbc.Client
             GC.SuppressFinalize(this);
         }
 
+        protected override DbParameterCollection DbParameterCollection => _parameters;
+
+        protected override DbParameter CreateDbParameter()
+        {
+            return new AdbcParameter();
+        }
+
 #if NET5_0_OR_GREATER
         public override ValueTask DisposeAsync()
         {
@@ -205,8 +217,6 @@ namespace Apache.Arrow.Adbc.Client
         public override bool DesignTimeVisible { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
         public override UpdateRowSource UpdatedRowSource { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
-        protected override DbParameterCollection DbParameterCollection => throw new NotImplementedException();
 
         protected override DbTransaction DbTransaction { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
@@ -221,11 +231,6 @@ namespace Apache.Arrow.Adbc.Client
         }
 
         public override void Prepare()
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override DbParameter CreateDbParameter()
         {
             throw new NotImplementedException();
         }
