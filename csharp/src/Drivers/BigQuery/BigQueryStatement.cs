@@ -238,7 +238,14 @@ namespace Apache.Arrow.Adbc.Drivers.BigQuery
             for (int i = 0; i < structArray.Data.Children.Length; i++)
             {
                 string name = structType.Fields[i].Name;
-                object value = GetValue(structArray.Fields[i], index);
+
+                object value = null;
+
+                try
+                {
+                    value = GetValue(structArray.Fields[i], index);
+                }
+                catch { };
 
                 if (value is StructArray structArray1)
                 {
@@ -267,7 +274,15 @@ namespace Apache.Arrow.Adbc.Drivers.BigQuery
                     {
                         for (int j = 0; j < arrowArray.Length; j++)
                         {
-                            values.Add(base.GetValue(arrowArray, j));
+                            object jValue = null;
+
+                            try
+                            {
+                                jValue = base.GetValue(arrowArray, j);
+                            }
+                            catch { };
+
+                            values.Add(jValue);
                         }
 
                         jsonDictionary.Add(name, values);

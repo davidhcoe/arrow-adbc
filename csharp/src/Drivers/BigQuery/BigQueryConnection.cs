@@ -78,15 +78,17 @@ namespace Apache.Arrow.Adbc.Drivers.BigQuery
 
             string tokenEndpoint = BigQueryConstants.TokenEndpoint;
 
-            string? authenticationType = BigQueryConstants.UserAuthenticationType;
+            string authenticationType = BigQueryConstants.UserAuthenticationType;
 
             // TODO: handle token expiration
 
             if (!this.properties.TryGetValue(BigQueryParameters.ProjectId, out projectId))
                 throw new ArgumentException($"The {BigQueryParameters.ProjectId} parameter is not present");
 
-            if (this.properties.TryGetValue(BigQueryParameters.AuthenticationType, out authenticationType))
+            if (this.properties.ContainsKey(BigQueryParameters.AuthenticationType))
             {
+                authenticationType = this.properties[BigQueryParameters.AuthenticationType];
+
                 if (!authenticationType.Equals(BigQueryConstants.UserAuthenticationType, StringComparison.OrdinalIgnoreCase) &&
                     !authenticationType.Equals(BigQueryConstants.ServiceAccountAuthenticationType, StringComparison.OrdinalIgnoreCase))
                 {
