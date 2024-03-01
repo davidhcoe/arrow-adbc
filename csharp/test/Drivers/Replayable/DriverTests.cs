@@ -53,9 +53,9 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
             BigQueryDriver bd = new BigQueryDriver();
             ReplayableDriver rd = new ReplayableDriver(bd);
 
-            Dictionary<string, string> allParameters = BigQueryTestingUtils.GetBigQueryParameters(_bigQueryTestConfiguration);
+            Dictionary<string, string> bqParameters = BigQueryTestingUtils.GetBigQueryParameters(_bigQueryTestConfiguration);
 
-            AdbcDatabase db = rd.Open(allParameters);
+            AdbcDatabase db = rd.Open(bqParameters);
             Dictionary<string, string> options = new Dictionary<string, string>()
             {
                 { ReplayableParameters.Mode, ReplayableConstants.RecordMode }

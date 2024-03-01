@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+using System.Collections.Generic;
 using static Apache.Arrow.Adbc.AdbcConnection;
 
 namespace Apache.Arrow.Adbc.Drivers.Replayable
@@ -41,7 +42,18 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
     public class ReplayableQueryResult : ReplayableItem
     {
+        public ReplayableQueryResult()
+        {
+            this.PreviousResults = new List<PreviousResult>();
+        }
+
         public string? Query { get; set; }
+        public long RowCount { get; set; }
+        public List<PreviousResult> PreviousResults { get; set; }
+    }
+
+    public class PreviousResult : ReplayableItem
+    {
         public long RowCount { get; set; }
     }
 }

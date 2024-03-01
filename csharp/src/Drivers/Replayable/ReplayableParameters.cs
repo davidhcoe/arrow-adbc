@@ -24,6 +24,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
     {
         public const string Mode = "adbc.replayable.mode";
         public const string DirectoryLocation = "adbc.replayable.directory";
+        public const string SavePreviousResults = "adbc.replayable.save_previous_results";
     }
 
     public class ReplayableConstants

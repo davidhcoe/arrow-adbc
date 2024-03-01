@@ -54,10 +54,20 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
             this.configuration = new ReplayableConfiguration()
             {
-                ReplayMode = this.replayMode
+                ReplayMode = this.replayMode,
+                SavePreviousResults = false
             };
 
-            if(properties.TryGetValue(ReplayableParameters.DirectoryLocation, out string location))
+            if (properties.TryGetValue(ReplayableParameters.SavePreviousResults, out string? savePreviousResults))
+            {
+                if (!string.IsNullOrEmpty(savePreviousResults))
+                {
+                    if (bool.TryParse(savePreviousResults, out bool result))
+                        this.configuration.SavePreviousResults = result;
+                }
+            }
+
+            if (properties.TryGetValue(ReplayableParameters.DirectoryLocation, out string? location))
             {
                 if(!string.IsNullOrEmpty(location))
                 {
@@ -75,8 +85,6 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             {
                 ReplayCache.Create(this.configuration);
             }
-
-            // TODO: Add ability to override / delete old cache
         }
 
         public override IArrowArrayStream GetInfo(List<AdbcInfoCode> codes)

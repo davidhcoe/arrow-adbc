@@ -15,12 +15,11 @@
  * limitations under the License.
  */
 
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using Apache.Arrow.Ipc;
 using System.IO;
-using System.Text.Json;
-using System;
+using Apache.Arrow.Ipc;
 
 namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
@@ -34,11 +33,11 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
     {
         public static ReplayMode GetReplayMode(IReadOnlyDictionary<string, string> properties)
         {
-            if (properties.TryGetValue(ReplayableParameters.Mode, out string mode))
+            if (properties.TryGetValue(ReplayableParameters.Mode, out string? mode))
             {
                 if (!string.IsNullOrEmpty(mode))
                 {
-                    if (mode.Equals(ReplayableConstants.RecordMode, System.StringComparison.OrdinalIgnoreCase))
+                    if (mode.Equals(ReplayableConstants.RecordMode, StringComparison.OrdinalIgnoreCase))
                         return ReplayMode.Record;
                 }
             }
@@ -77,6 +76,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
                 for (int i = 0; i < batches; i++)
                 {
+                    // TODO: this requires an update to Arrow to make it work correctly
                     RecordBatch recordBatch = reader.ReadNextRecordBatch();
                     recordBatches.Add(recordBatch);
                 }
@@ -90,21 +90,17 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
 
             using (FileStream fs = new FileStream(location, FileMode.Create))
-            using (ArrowFileWriter arrowFileWriter = new ArrowFileWriter(fs, stream.Schema, leaveOpen: false, new IpcOptions() { WriteLegacyIpcFormat = true }))
+            using (ArrowFileWriter writer = new ArrowFileWriter(fs, stream.Schema, leaveOpen: false))
             {
-                //arrowFileWriter.WriteStart();
+                //writer.WriteStart();
 
-                while (true)
+                RecordBatch batch;
+                while ((batch = stream.ReadNextRecordBatchAsync().Result) != null)
                 {
-                    RecordBatch batch = stream.ReadNextRecordBatchAsync().Result;
-
-                    if (batch == null)
-                        break;
-
-                    arrowFileWriter.WriteRecordBatch(batch);
+                    writer.WriteRecordBatch(batch);
                 }
 
-                arrowFileWriter.WriteEnd();
+                writer.WriteEnd();
 
                 fs.Close();
             }
@@ -130,8 +126,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
     public class ReplayablePropertySet
     {
-        public IReadOnlyDictionary<string, string> AdbcDriverProperties;
-        public IReadOnlyDictionary<string, string> ReplayableDriverProperties;
-
+        public IReadOnlyDictionary<string, string>? AdbcDriverProperties;
+        public IReadOnlyDictionary<string, string>? ReplayableDriverProperties;
     }
 }

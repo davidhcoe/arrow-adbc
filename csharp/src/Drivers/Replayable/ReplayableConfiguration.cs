@@ -25,9 +25,14 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
     public class ReplayableConfiguration
     {
+        public ReplayableConfiguration()
+        {
+            SavePreviousResults = false;
+        }
+
         public ReplayMode ReplayMode { get; set; }
         public string FileLocation { get; set; }
-        public string Name { get; set; }
+        public bool SavePreviousResults { get; set; }
     }
 
     public class ReplayCache
