@@ -35,7 +35,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
         public override AdbcConnection Connect(IReadOnlyDictionary<string, string> properties)
         {
-            ReplayablePropertySet propertySet = ReplayableUtils.ParseDriverProperties(properties); 
+            ReplayablePropertySet propertySet = ReplayableUtils.ParseProperties(properties);
             AdbcConnection adbcConnection = this.database.Connect(propertySet.AdbcDriverProperties);
 
             ReplayableConnection rc = new ReplayableConnection(adbcConnection, propertySet.ReplayableDriverProperties);

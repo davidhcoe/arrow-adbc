@@ -30,14 +30,16 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         /// <param name="adbcDriver">The internal ADBC driver to use for replays.</param>
         public ReplayableDriver(AdbcDriver adbcDriver)
         {
-            this.AdbcDriver = adbcDriver;
+            this.adbcDriver = adbcDriver;
         }
 
-        public AdbcDriver AdbcDriver { get; set; }
+        private AdbcDriver adbcDriver;
 
         public override AdbcDatabase Open(IReadOnlyDictionary<string, string> parameters)
         {
-            AdbcDatabase database = this.AdbcDriver.Open(parameters);
+            ReplayablePropertySet replayablePropertySet = ReplayableUtils.ParseProperties(parameters);
+
+            AdbcDatabase database = this.adbcDriver.Open(replayablePropertySet.AdbcDriverProperties);
             return new ReplayableDatabase(database, parameters);
         }
     }

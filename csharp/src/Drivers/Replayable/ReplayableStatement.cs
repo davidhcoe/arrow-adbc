@@ -16,40 +16,103 @@
 */
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Data.SqlTypes;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
 using Apache.Arrow.Ipc;
-using Apache.Arrow.Types;
 
-
-namespace Apache.Arrow.Adbc.Drivers.BigQuery
+namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
     /// <summary>
-    /// BigQuery-specific implementation of <see cref="AdbcStatement"/>
+    /// Replayable implementation of <see cref="AdbcStatement"/>
     /// </summary>
     public class ReplayableStatement : AdbcStatement
     {
         private AdbcStatement replayableStatement;
+        private ReplayMode replayMode;
+        private ReplayableConfiguration configuration;
 
-        public ReplayableStatement(AdbcStatement statement)
+        public ReplayableStatement(AdbcStatement statement, ReplayableConfiguration configuration)
         {
+            this.replayMode = configuration.ReplayMode;
             this.replayableStatement = statement;
+            this.configuration = configuration;
         }
 
         public override QueryResult ExecuteQuery()
         {
-            return this.replayableStatement.ExecuteQuery();
+            if (this.replayMode == ReplayMode.Record)
+            {
+                this.replayableStatement.SqlQuery = this.SqlQuery;
+                QueryResult result = this.replayableStatement.ExecuteQuery();
+
+                // write result
+                if (result != null)
+                {
+                    ReplayableQueryResult qr = new ReplayableQueryResult();
+                    qr.Query = this.replayableStatement.SqlQuery;
+                    qr.RowCount = result.RowCount;
+                    qr.Location = ReplayableUtils.SaveArrayStream(this.configuration, result.Stream);
+
+                    ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+                    cache.ReplayableQueryResults.Add(qr);
+                    cache.Save();
+
+                    // now play it back
+                    List<RecordBatch> recordBatches = ReplayableUtils.LoadRecordBatches(qr.Location);
+                    Schema s = recordBatches.First().Schema;
+                    QueryResult replayResult = new QueryResult(result.RowCount, new ReplayedArrayStream(s, recordBatches));
+
+                    return replayResult;
+                }
+
+                return new QueryResult(-1, null);
+            }
+            else
+            {
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+                ReplayableQueryResult? replayedQueryResult = cache.ReplayableQueryResults.FirstOrDefault(x => x.Query == this.replayableStatement.SqlQuery);
+
+                if (replayedQueryResult == null)
+                    throw new InvalidOperationException($"Cannot replay a result for `{this.replayableStatement.SqlQuery}`");
+
+                List<RecordBatch> recordBatches = ReplayableUtils.LoadRecordBatches(replayedQueryResult.Location);
+
+                Schema s = recordBatches.First().Schema;
+                QueryResult replayResult = new QueryResult(replayedQueryResult.RowCount, new ReplayedArrayStream(s, recordBatches));
+
+                return replayResult;
+            }
         }
 
         public override UpdateResult ExecuteUpdate()
         {
-            return this.replayableStatement.ExecuteUpdate();
+            if(this.replayMode == ReplayMode.Record)
+            {
+               UpdateResult updateResult = this.replayableStatement.ExecuteUpdate();
+
+                ReplayableQueryResult r = new ReplayableQueryResult();
+                r.RowCount = updateResult.AffectedRows;
+
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+                cache.ReplayableUpdateResults.Add(r);
+                cache.Save();
+
+                return updateResult;
+            }
+            else
+            {
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+                ReplayableQueryResult? replayedQueryResult = cache.ReplayableQueryResults.FirstOrDefault(x => x.Query == this.replayableStatement.SqlQuery);
+                if (replayedQueryResult == null)
+                    throw new InvalidOperationException($"Cannot replay a result for `{this.replayableStatement.SqlQuery}`");
+
+                UpdateResult ur = new UpdateResult(replayedQueryResult.RowCount);
+
+                return ur;
+            }
         }
 
         public override object GetValue(IArrowArray arrowArray, int index)

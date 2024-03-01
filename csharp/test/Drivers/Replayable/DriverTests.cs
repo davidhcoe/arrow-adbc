@@ -18,15 +18,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Apache.Arrow.Adbc.Drivers.BigQuery;
+using Apache.Arrow.Adbc.Drivers.Replayable;
+using Apache.Arrow.Adbc.Tests.Drivers.BigQuery;
 using Apache.Arrow.Adbc.Tests.Metadata;
 using Apache.Arrow.Adbc.Tests.Xunit;
 using Apache.Arrow.Ipc;
 using Xunit;
 
-namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
+namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 {
     /// <summary>
-    /// Class for testing the BigQuery ADBC driver connection tests.
+    /// Class for testing the Snowflake ADBC driver connection tests.
     /// </summary>
     /// <remarks>
     /// Tests are ordered to ensure data is created for the other
@@ -35,14 +38,38 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
     [TestCaseOrderer("Apache.Arrow.Adbc.Tests.Xunit.TestOrderer", "Apache.Arrow.Adbc.Tests")]
     public class DriverTests
     {
-        BigQueryTestConfiguration _testConfiguration;
+        BigQueryTestConfiguration _bigQueryTestConfiguration;
 
         public DriverTests()
         {
             Skip.IfNot(Utils.CanExecuteTestConfig(BigQueryTestingUtils.BIGQUERY_TEST_CONFIG_VARIABLE));
-            _testConfiguration = Utils.LoadTestConfiguration<BigQueryTestConfiguration>(BigQueryTestingUtils.BIGQUERY_TEST_CONFIG_VARIABLE);
+            _bigQueryTestConfiguration = Utils.LoadTestConfiguration<BigQueryTestConfiguration>(BigQueryTestingUtils.BIGQUERY_TEST_CONFIG_VARIABLE);
 
         }
+
+        [SkippableFact]
+        public void CanRun()
+        {
+            BigQueryDriver bd = new BigQueryDriver();
+            ReplayableDriver rd = new ReplayableDriver(bd);
+
+            Dictionary<string, string> allParameters = BigQueryTestingUtils.GetBigQueryParameters(_bigQueryTestConfiguration);
+
+            AdbcDatabase db = rd.Open(allParameters);
+            Dictionary<string, string> options = new Dictionary<string, string>()
+            {
+                { ReplayableParameters.Mode, ReplayableConstants.RecordMode }
+            };
+            AdbcConnection cn = db.Connect(options);
+
+            AdbcStatement stmt = cn.CreateStatement();
+            stmt.SqlQuery = _bigQueryTestConfiguration.Query;
+            QueryResult queryResult = stmt.ExecuteQuery();
+
+            Tests.DriverTests.CanExecuteQuery(queryResult, _bigQueryTestConfiguration.ExpectedResultsCount);
+        }
+
+        /*
 
         /// <summary>
         /// Validates if the driver can connect to a live server and
@@ -51,10 +78,9 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         [SkippableFact, Order(1)]
         public void CanExecuteUpdate()
         {
+            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
 
-            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
-
-            string[] queries = BigQueryTestingUtils.GetQueries(_testConfiguration);
+            string[] queries = BigQueryTestingUtils.GetQueries(_bigQueryTestConfiguration);
 
             List<int> expectedResults = new List<int>() { -1, 1, 1 };
 
@@ -76,7 +102,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         [SkippableFact, Order(2)]
         public void CanGetInfo()
         {
-            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
+            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
 
             IArrowArrayStream stream = adbcConnection.GetInfo(new List<AdbcInfoCode>() { AdbcInfoCode.DriverName, AdbcInfoCode.DriverVersion, AdbcInfoCode.VendorName });
 
@@ -104,12 +130,12 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         public void CanGetObjects()
         {
             // need to add the database
-            string catalogName = _testConfiguration.Metadata.Catalog;
-            string schemaName = _testConfiguration.Metadata.Schema;
-            string tableName = _testConfiguration.Metadata.Table;
+            string catalogName = _bigQueryTestConfiguration.Metadata.Catalog;
+            string schemaName = _bigQueryTestConfiguration.Metadata.Schema;
+            string tableName = _bigQueryTestConfiguration.Metadata.Table;
             string columnName = null;
 
-            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
+            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
 
             IArrowArrayStream stream = adbcConnection.GetObjects(
                     depth: AdbcConnection.GetObjectsDepth.All,
@@ -131,7 +157,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
                 .Select(c => c.Columns)
                 .FirstOrDefault();
 
-            Assert.Equal(_testConfiguration.Metadata.ExpectedColumnCount, columns.Count);
+            Assert.Equal(_bigQueryTestConfiguration.Metadata.ExpectedColumnCount, columns.Count);
         }
 
         /// <summary>
@@ -140,17 +166,17 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         [SkippableFact, Order(4)]
         public void CanGetTableSchema()
         {
-            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
+            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
 
-            string catalogName = _testConfiguration.Metadata.Catalog;
-            string schemaName = _testConfiguration.Metadata.Schema;
-            string tableName = _testConfiguration.Metadata.Table;
+            string catalogName = _bigQueryTestConfiguration.Metadata.Catalog;
+            string schemaName = _bigQueryTestConfiguration.Metadata.Schema;
+            string tableName = _bigQueryTestConfiguration.Metadata.Table;
 
             Schema schema = adbcConnection.GetTableSchema(catalogName, schemaName, tableName);
 
             int numberOfFields = schema.FieldsList.Count;
 
-            Assert.Equal(_testConfiguration.Metadata.ExpectedColumnCount, numberOfFields);
+            Assert.Equal(_bigQueryTestConfiguration.Metadata.ExpectedColumnCount, numberOfFields);
         }
 
         /// <summary>
@@ -159,7 +185,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         [SkippableFact, Order(5)]
         public void CanGetTableTypes()
         {
-            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
+            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
 
             IArrowArrayStream arrowArrayStream = adbcConnection.GetTableTypes();
 
@@ -194,14 +220,16 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         [SkippableFact, Order(6)]
         public void CanExecuteQuery()
         {
-            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
+            AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
 
             AdbcStatement statement = adbcConnection.CreateStatement();
-            statement.SqlQuery = _testConfiguration.Query;
+            statement.SqlQuery = _bigQueryTestConfiguration.Query;
 
             QueryResult queryResult = statement.ExecuteQuery();
 
-            Tests.DriverTests.CanExecuteQuery(queryResult, _testConfiguration.ExpectedResultsCount);
+            Tests.DriverTests.CanExecuteQuery(queryResult, _bigQueryTestConfiguration.ExpectedResultsCount);
         }
+
+        */
     }
 }

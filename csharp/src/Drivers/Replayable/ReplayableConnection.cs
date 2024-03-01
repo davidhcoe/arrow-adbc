@@ -16,16 +16,10 @@
 */
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
-using System.Net.Http;
-using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using Apache.Arrow.Ipc;
-using Apache.Arrow.Types;
 
 namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
@@ -37,26 +31,53 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         readonly IReadOnlyDictionary<string, string> properties;
         readonly ReplayMode replayMode;
 
-        const string infoDriverName = "ADBC Replayable Driver";
-        const string infoDriverVersion = "1.0.0";
-        const string infoVendorName = "Apache";
-        const string infoDriverArrowVersion = "1.0.0";
+        //const string infoDriverName = "ADBC Replayable Driver";
+        //const string infoDriverVersion = "1.0.0";
+        //const string infoVendorName = "Apache";
+        //const string infoDriverArrowVersion = "1.0.0";
 
-        readonly IReadOnlyList<AdbcInfoCode> infoSupportedCodes = new List<AdbcInfoCode> {
-            AdbcInfoCode.DriverName,
-            AdbcInfoCode.DriverVersion,
-            AdbcInfoCode.DriverArrowVersion,
-            AdbcInfoCode.VendorName
-        };
+        //readonly IReadOnlyList<AdbcInfoCode> infoSupportedCodes = new List<AdbcInfoCode> {
+        //    AdbcInfoCode.DriverName,
+        //    AdbcInfoCode.DriverVersion,
+        //    AdbcInfoCode.DriverArrowVersion,
+        //    AdbcInfoCode.VendorName
+        //};
 
         private AdbcConnection replayableConnection;
+        private ReplayableConfiguration configuration;
 
         public ReplayableConnection(AdbcConnection adbcConnection, IReadOnlyDictionary<string, string> properties)
         {
             this.properties = properties;
             this.replayableConnection = adbcConnection;
             this.replayMode = ReplayableUtils.GetReplayMode(properties);
-         }
+
+            this.configuration = new ReplayableConfiguration()
+            {
+                ReplayMode = this.replayMode
+            };
+
+            if(properties.TryGetValue(ReplayableParameters.DirectoryLocation, out string location))
+            {
+                if(!string.IsNullOrEmpty(location))
+                {
+                    string directory = Path.GetDirectoryName(location);
+                    this.configuration.FileLocation = Path.Combine(directory, adbcConnection.GetType().Name ,".cache");
+                }
+            }
+
+            if(string.IsNullOrEmpty(this.configuration.FileLocation))
+            {
+                this.configuration.FileLocation = Path.Combine(Directory.GetCurrentDirectory(), adbcConnection.GetType().Name + ".cache");
+            }
+
+            if(!File.Exists(this.configuration.FileLocation))
+            {
+                ReplayCache.Create(this.configuration);
+            }
+
+            // TODO: Add ability to override / delete old cache
+        }
 
         public override IArrowArrayStream GetInfo(List<AdbcInfoCode> codes)
         {
@@ -81,13 +102,45 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                     tableTypes,
                     columnNamePattern);
 
-                //TODO: save the stream
+                string location = ReplayableUtils.SaveArrayStream(this.configuration, stream);
+
+                ReplayableConnectionGetObjects gi = new ReplayableConnectionGetObjects()
+                {
+                    CatalogPattern = catalogPattern,
+                    DbSchemaPattern = dbSchemaPattern,
+                    TableNamePattern = tableNamePattern,
+                    ColumnNamePattern = columnNamePattern,
+                    Depth = depth,
+                    TableTypes = string.Concat(tableTypes, '-'),
+                    Location = location
+                };
+
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+                cache.ReplayableConnectionGetObjects.Add(gi);
+                cache.Save();
 
                 return stream;
             }
             else
             {
-                throw new NotSupportedException();
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+                ReplayableConnectionGetObjects? replayedConnectionGetObjects =
+                    cache.ReplayableConnectionGetObjects.FirstOrDefault(x =>
+                            x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
+                            x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
+                            x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                            x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                            x.Depth == depth &&
+                            x.TableTypes.Equals(string.Concat(tableTypes, '-'), StringComparison.OrdinalIgnoreCase)
+                );
+
+                if (replayedConnectionGetObjects == null)
+                    throw new InvalidOperationException("cannot obtain the cache for GetObjects");
+
+                List<RecordBatch> recordBatches = ReplayableUtils.LoadRecordBatches(replayedConnectionGetObjects.Location);
+                Schema s = recordBatches.First().Schema;
+
+                return new ReplayedArrayStream(s, recordBatches);
             }
         }
 
@@ -98,6 +151,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                 Schema schema = this.replayableConnection.GetTableSchema(catalog, dbSchema, tableName);
 
                 // save the schema
+                ReplayableUtils.SaveSchema(this.configuration, schema);
                 return schema;
             }
             else
@@ -110,11 +164,13 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         {
             if (this.replayMode == ReplayMode.Record)
             {
-                IArrowArrayStream types = this.replayableConnection.GetTableTypes();
+                IArrowArrayStream typesStream = this.replayableConnection.GetTableTypes();
 
                 // save the stream
 
-                return types;
+                ReplayableUtils.SaveArrayStream(this.configuration, typesStream);
+
+                return typesStream;
             }
             else
             {
@@ -124,7 +180,9 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
         public override AdbcStatement CreateStatement()
         {
-            return this.replayableConnection.CreateStatement();            
+            AdbcStatement adbcStatement = this.replayableConnection.CreateStatement();
+            ReplayableStatement replayableStatement = new ReplayableStatement(adbcStatement, this.configuration);
+            return replayableStatement;
         }
 
         public override void Dispose()

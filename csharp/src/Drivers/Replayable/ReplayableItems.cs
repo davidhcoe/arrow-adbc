@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
  * this work for additional information regarding copyright ownership.
@@ -15,21 +15,33 @@
  * limitations under the License.
  */
 
+using static Apache.Arrow.Adbc.AdbcConnection;
+
 namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
-    /// <summary>
-    /// Parameters used for connecting to Replayable data sources.
-    /// </summary>
-    public class ReplayableParameters
+    public class ReplayableItem
     {
-        public const string Mode = "adbc.replayable.mode";
-        public const string DirectoryLocation = "adbc.replayable.directory";
+        public string? Location { get; set; }
     }
 
-    public class ReplayableConstants
+    public class ReplayableConnectionGetObjects : ReplayableItem
     {
-        public const string ReplayablePrefix = "adbc.replayable.";
-        public const string RecordMode = "record";
-        public const string ReplayMode = "replay";
+        public GetObjectsDepth Depth { get; set; }
+        public string? CatalogPattern { get; set; }
+        public string? DbSchemaPattern { get; set; }
+        public string? TableNamePattern { get; set; }
+        public string? TableTypes { get; set; }
+        public string? ColumnNamePattern { get; set; }
+    }
+
+    public class ReplayableConnectionGetInfo : ReplayableItem
+    {
+        public string? AdbcInfoCodes { get; set; }
+    }
+
+    public class ReplayableQueryResult : ReplayableItem
+    {
+        public string? Query { get; set; }
+        public long RowCount { get; set; }
     }
 }

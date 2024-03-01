@@ -17,17 +17,13 @@
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
+using Apache.Arrow.Ipc;
+using System.IO;
+using System.Text.Json;
+using System;
 
 namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
-    public class ReplayableConstants
-    {
-        public const string ReplayablePrefix = "adbc.replayable.";
-        public const string RecordMode = "record";
-        public const string ReplayMode = "replay";
-    }
-
     public enum ReplayMode
     {
         Record,
@@ -50,7 +46,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             return ReplayMode.Replay;
         }
 
-        public static ReplayablePropertySet ParseDriverProperties(IReadOnlyDictionary<string, string> allProperties)
+        public static ReplayablePropertySet ParseProperties(IReadOnlyDictionary<string, string> allProperties)
         {
             Dictionary<string, string> driverProperties = new Dictionary<string, string>();
             Dictionary<string, string> replayableProperties = new Dictionary<string, string>();
@@ -68,6 +64,67 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                 AdbcDriverProperties = new ReadOnlyDictionary<string, string>(driverProperties),
                 ReplayableDriverProperties = new ReadOnlyDictionary<string, string>(replayableProperties),
             };
+        }
+
+        public static List<RecordBatch> LoadRecordBatches(string location)
+        {
+            List<RecordBatch> recordBatches = new List<RecordBatch>();
+
+            using (FileStream fs = new FileStream(location, FileMode.Open))
+            using (ArrowFileReader reader = new ArrowFileReader(fs))
+            {
+                int batches = reader.RecordBatchCountAsync().Result;
+
+                for (int i = 0; i < batches; i++)
+                {
+                    RecordBatch recordBatch = reader.ReadNextRecordBatch();
+                    recordBatches.Add(recordBatch);
+                }
+            }
+
+            return recordBatches;
+        }
+
+        public static string SaveArrayStream(ReplayableConfiguration config, IArrowArrayStream stream)
+        {
+            string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
+
+            using (FileStream fs = new FileStream(location, FileMode.Create))
+            using (ArrowFileWriter arrowFileWriter = new ArrowFileWriter(fs, stream.Schema, leaveOpen: false, new IpcOptions() { WriteLegacyIpcFormat = true }))
+            {
+                //arrowFileWriter.WriteStart();
+
+                while (true)
+                {
+                    RecordBatch batch = stream.ReadNextRecordBatchAsync().Result;
+
+                    if (batch == null)
+                        break;
+
+                    arrowFileWriter.WriteRecordBatch(batch);
+                }
+
+                arrowFileWriter.WriteEnd();
+
+                fs.Close();
+            }
+
+            return location;
+        }
+
+        public static string SaveSchema(ReplayableConfiguration config, Schema schema)
+        {
+            string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
+
+            using (FileStream fs = new FileStream(location, FileMode.Open))
+            using (ArrowFileWriter arrowFileWriter = new ArrowFileWriter(fs, schema, leaveOpen: false, new IpcOptions() { WriteLegacyIpcFormat = true }))
+            {
+                arrowFileWriter.WriteStart();
+                arrowFileWriter.WriteEnd();
+                fs.Close();
+            }
+
+            return location;
         }
     }
 
