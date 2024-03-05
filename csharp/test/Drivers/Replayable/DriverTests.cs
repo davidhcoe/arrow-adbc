@@ -44,7 +44,6 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         {
             Skip.IfNot(Utils.CanExecuteTestConfig(BigQueryTestingUtils.BIGQUERY_TEST_CONFIG_VARIABLE));
             _bigQueryTestConfiguration = Utils.LoadTestConfiguration<BigQueryTestConfiguration>(BigQueryTestingUtils.BIGQUERY_TEST_CONFIG_VARIABLE);
-
         }
 
         [SkippableFact]
@@ -58,7 +57,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
             AdbcDatabase db = rd.Open(bqParameters);
             Dictionary<string, string> options = new Dictionary<string, string>()
             {
-                { ReplayableParameters.Mode, ReplayableConstants.RecordMode }
+                { ReplayableOptions.Mode, ReplayableConstants.RecordMode }
             };
             AdbcConnection cn = db.Connect(options);
 

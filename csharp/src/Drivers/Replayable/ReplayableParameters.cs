@@ -18,9 +18,9 @@
 namespace Apache.Arrow.Adbc.Drivers.Replayable
 {
     /// <summary>
-    /// Parameters used for connecting to Replayable data sources.
+    /// Options used for connecting to Replayable data sources.
     /// </summary>
-    public class ReplayableParameters
+    public class ReplayableOptions
     {
         public const string Mode = "adbc.replayable.mode";
         public const string DirectoryLocation = "adbc.replayable.directory";

@@ -19,6 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using Apache.Arrow.Ipc;
 
 namespace Apache.Arrow.Adbc.Drivers.Replayable
@@ -29,11 +30,11 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         Replay
     }
 
-    public class ReplayableUtils
+    internal class ReplayableUtils
     {
-        public static ReplayMode GetReplayMode(IReadOnlyDictionary<string, string> properties)
+        internal static ReplayMode GetReplayMode(IReadOnlyDictionary<string, string> properties)
         {
-            if (properties.TryGetValue(ReplayableParameters.Mode, out string? mode))
+            if (properties.TryGetValue(ReplayableOptions.Mode, out string? mode))
             {
                 if (!string.IsNullOrEmpty(mode))
                 {
@@ -45,7 +46,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             return ReplayMode.Replay;
         }
 
-        public static ReplayablePropertySet ParseProperties(IReadOnlyDictionary<string, string> allProperties)
+        internal static ReplayablePropertySet ParseProperties(IReadOnlyDictionary<string, string> allProperties)
         {
             Dictionary<string, string> driverProperties = new Dictionary<string, string>();
             Dictionary<string, string> replayableProperties = new Dictionary<string, string>();
@@ -65,7 +66,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             };
         }
 
-        public static List<RecordBatch> LoadRecordBatches(string location)
+        internal static List<RecordBatch> LoadRecordBatches(string location)
         {
             List<RecordBatch> recordBatches = new List<RecordBatch>();
 
@@ -85,7 +86,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             return recordBatches;
         }
 
-        public static string SaveArrayStream(ReplayableConfiguration config, IArrowArrayStream stream)
+        internal static string SaveArrayStream(ReplayableConfiguration config, IArrowArrayStream stream)
         {
             string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
 
@@ -108,7 +109,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             return location;
         }
 
-        public static string SaveSchema(ReplayableConfiguration config, Schema schema)
+        internal static string SaveSchema(ReplayableConfiguration config, Schema schema)
         {
             string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
 
@@ -122,9 +123,16 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
             return location;
         }
+
+        internal static ReplayedArrayStream GetReplayedArrayStream(string location)
+        {
+            List<RecordBatch> recordBatches = ReplayableUtils.LoadRecordBatches(location);
+            Schema s = recordBatches.First().Schema;
+            return new ReplayedArrayStream(s, recordBatches);
+        }
     }
 
-    public class ReplayablePropertySet
+    internal class ReplayablePropertySet
     {
         public IReadOnlyDictionary<string, string>? AdbcDriverProperties;
         public IReadOnlyDictionary<string, string>? ReplayableDriverProperties;

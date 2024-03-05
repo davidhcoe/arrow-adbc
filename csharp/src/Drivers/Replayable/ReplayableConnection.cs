@@ -28,29 +28,16 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
     /// </summary>
     public class ReplayableConnection : AdbcConnection
     {
-        readonly IReadOnlyDictionary<string, string> properties;
-        readonly ReplayMode replayMode;
-
-        //const string infoDriverName = "ADBC Replayable Driver";
-        //const string infoDriverVersion = "1.0.0";
-        //const string infoVendorName = "Apache";
-        //const string infoDriverArrowVersion = "1.0.0";
-
-        //readonly IReadOnlyList<AdbcInfoCode> infoSupportedCodes = new List<AdbcInfoCode> {
-        //    AdbcInfoCode.DriverName,
-        //    AdbcInfoCode.DriverVersion,
-        //    AdbcInfoCode.DriverArrowVersion,
-        //    AdbcInfoCode.VendorName
-        //};
-
+        private readonly IReadOnlyDictionary<string, string> options;
+        private readonly ReplayMode replayMode;
         private AdbcConnection replayableConnection;
         private ReplayableConfiguration configuration;
 
-        public ReplayableConnection(AdbcConnection adbcConnection, IReadOnlyDictionary<string, string> properties)
+        public ReplayableConnection(AdbcConnection adbcConnection, IReadOnlyDictionary<string, string> options)
         {
-            this.properties = properties;
+            this.options = options;
             this.replayableConnection = adbcConnection;
-            this.replayMode = ReplayableUtils.GetReplayMode(properties);
+            this.replayMode = ReplayableUtils.GetReplayMode(options);
 
             this.configuration = new ReplayableConfiguration()
             {
@@ -58,7 +45,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                 SavePreviousResults = false
             };
 
-            if (properties.TryGetValue(ReplayableParameters.SavePreviousResults, out string? savePreviousResults))
+            if (options.TryGetValue(ReplayableOptions.SavePreviousResults, out string? savePreviousResults))
             {
                 if (!string.IsNullOrEmpty(savePreviousResults))
                 {
@@ -67,18 +54,18 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                 }
             }
 
-            if (properties.TryGetValue(ReplayableParameters.DirectoryLocation, out string? location))
+            if (options.TryGetValue(ReplayableOptions.DirectoryLocation, out string? location))
             {
                 if(!string.IsNullOrEmpty(location))
                 {
                     string directory = Path.GetDirectoryName(location);
-                    this.configuration.FileLocation = Path.Combine(directory, adbcConnection.GetType().Name ,".cache");
+                    this.configuration.FileLocation = Path.Combine(directory, GetCacheName());
                 }
             }
 
             if(string.IsNullOrEmpty(this.configuration.FileLocation))
             {
-                this.configuration.FileLocation = Path.Combine(Directory.GetCurrentDirectory(), adbcConnection.GetType().Name + ".cache");
+                this.configuration.FileLocation = Path.Combine(Directory.GetCurrentDirectory(), GetCacheName());
             }
 
             if(!File.Exists(this.configuration.FileLocation))
@@ -89,7 +76,47 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
         public override IArrowArrayStream GetInfo(List<AdbcInfoCode> codes)
         {
-            return this.replayableConnection.GetInfo(codes);
+            if (this.replayMode == ReplayMode.Record)
+            {
+                IArrowArrayStream stream = this.replayableConnection.GetInfo(codes);
+
+                string location = ReplayableUtils.SaveArrayStream(this.configuration, stream);
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+                ReplayableConnectionGetInfo replayedConnectionGetInfo = FindPreviousConnectionGetInfo(codes, false);
+
+                if (replayedConnectionGetInfo != null)
+                {
+                    if (this.configuration.SavePreviousResults)
+                    {
+                        replayedConnectionGetInfo.PreviousResults.Add(new ReplayableItem() { Location = replayedConnectionGetInfo.Location });
+                    }
+                    else if (File.Exists(replayedConnectionGetInfo.Location))
+                    {
+                        File.Delete(replayedConnectionGetInfo.Location);
+                    }
+                }
+                else
+                {
+                    ReplayableConnectionGetInfo gi = new ReplayableConnectionGetInfo()
+                    {
+                        AdbcInfoCodes = ConcatenateItems(codes.Select(x => x.ToString()).ToList()),
+                        Location = location
+                    };
+
+                    cache.ReplayableConnectionGetInfo.Add(gi);
+                }
+
+                cache.Save();
+
+                // now play it back because it was only read-forward
+                return ReplayableUtils.GetReplayedArrayStream(location);
+            }
+            else
+            {
+                ReplayableConnectionGetInfo replayedConnectionGetInfo = FindPreviousConnectionGetInfo(codes);
+                return ReplayableUtils.GetReplayedArrayStream(replayedConnectionGetInfo.Location);
+            }
         }
 
         public override IArrowArrayStream GetObjects(
@@ -111,44 +138,59 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                     columnNamePattern);
 
                 string location = ReplayableUtils.SaveArrayStream(this.configuration, stream);
-
-                ReplayableConnectionGetObjects gi = new ReplayableConnectionGetObjects()
-                {
-                    CatalogPattern = catalogPattern,
-                    DbSchemaPattern = dbSchemaPattern,
-                    TableNamePattern = tableNamePattern,
-                    ColumnNamePattern = columnNamePattern,
-                    Depth = depth,
-                    TableTypes = string.Concat(tableTypes, '-'),
-                    Location = location
-                };
-
                 ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
-                cache.ReplayableConnectionGetObjects.Add(gi);
+
+                ReplayableConnectionGetObjects replayedConnectionGetObjects = FindPreviousConnectionGetObjects(
+                    depth,
+                    catalogPattern,
+                    dbSchemaPattern,
+                    tableNamePattern,
+                    tableTypes,
+                    columnNamePattern, false);
+
+                if (replayedConnectionGetObjects != null)
+                {
+                    if (this.configuration.SavePreviousResults)
+                    {
+                        replayedConnectionGetObjects.PreviousResults.Add(new ReplayableItem() { Location = replayedConnectionGetObjects.Location });
+                    }
+                    else if (File.Exists(replayedConnectionGetObjects.Location))
+                    {
+                        File.Delete(replayedConnectionGetObjects.Location);
+                    }
+                }
+                else
+                {
+                    ReplayableConnectionGetObjects gi = new ReplayableConnectionGetObjects()
+                    {
+                        CatalogPattern = catalogPattern,
+                        DbSchemaPattern = dbSchemaPattern,
+                        TableNamePattern = tableNamePattern,
+                        ColumnNamePattern = columnNamePattern,
+                        Depth = depth,
+                        TableTypes = ConcatenateItems(tableTypes),
+                        Location = location
+                    };
+
+                    cache.ReplayableConnectionGetObjects.Add(gi);
+                }
+
                 cache.Save();
 
-                return stream;
+                // now play it back because it was only read-forward
+                return ReplayableUtils.GetReplayedArrayStream(location);
             }
             else
             {
-                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
-                ReplayableConnectionGetObjects? replayedConnectionGetObjects =
-                    cache.ReplayableConnectionGetObjects.FirstOrDefault(x =>
-                            x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
-                            x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
-                            x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
-                            x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase) &&
-                            x.Depth == depth &&
-                            x.TableTypes.Equals(string.Concat(tableTypes, '-'), StringComparison.OrdinalIgnoreCase)
-                );
+                ReplayableConnectionGetObjects replayedConnectionGetObjects = FindPreviousConnectionGetObjects(
+                    depth,
+                    catalogPattern,
+                    dbSchemaPattern,
+                    tableNamePattern,
+                    tableTypes,
+                    columnNamePattern);
 
-                if (replayedConnectionGetObjects == null)
-                    throw new InvalidOperationException("cannot obtain the cache for GetObjects");
-
-                List<RecordBatch> recordBatches = ReplayableUtils.LoadRecordBatches(replayedConnectionGetObjects.Location);
-                Schema s = recordBatches.First().Schema;
-
-                return new ReplayedArrayStream(s, recordBatches);
+                return ReplayableUtils.GetReplayedArrayStream(replayedConnectionGetObjects.Location);
             }
         }
 
@@ -158,13 +200,43 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             {
                 Schema schema = this.replayableConnection.GetTableSchema(catalog, dbSchema, tableName);
 
-                // save the schema
-                ReplayableUtils.SaveSchema(this.configuration, schema);
+                string location = ReplayableUtils.SaveSchema(this.configuration, schema);
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+                ReplayableConnectionGetTableSchema replayedConnectionGetTableSchema = FindPreviousConnectionGetTableSchema(catalog, dbSchema, tableName);
+
+                if (replayedConnectionGetTableSchema != null)
+                {
+                    if (this.configuration.SavePreviousResults)
+                    {
+                        replayedConnectionGetTableSchema.PreviousResults.Add(new ReplayableItem() { Location = replayedConnectionGetTableSchema.Location });
+                    }
+                    else if (File.Exists(replayedConnectionGetTableSchema.Location))
+                    {
+                        File.Delete(replayedConnectionGetTableSchema.Location);
+                    }
+                }
+                else
+                {
+                    ReplayableConnectionGetTableSchema gts = new ReplayableConnectionGetTableSchema()
+                    {
+                        Catalog = catalog,
+                        DbSchema = dbSchema,
+                        TableName = tableName,
+                    };
+
+                    cache.ReplayableConnectionGetTableSchema.Add(gts);
+                }
+
+                cache.Save();
+
+                // now play it back because it was only read-forward
                 return schema;
             }
             else
             {
-                throw new NotSupportedException();
+                ReplayableConnectionGetTableTypes replayedConnectionGetTableTypes = FindPreviousConnectionGetTableTypes();
+                return ReplayableUtils.GetReplayedArrayStream(replayedConnectionGetTableTypes.Location).Schema;
             }
         }
 
@@ -172,17 +244,55 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         {
             if (this.replayMode == ReplayMode.Record)
             {
-                IArrowArrayStream typesStream = this.replayableConnection.GetTableTypes();
+                IArrowArrayStream stream = this.replayableConnection.GetTableTypes();
 
-                // save the stream
+                string location = ReplayableUtils.SaveArrayStream(this.configuration, stream);
+                ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
 
-                ReplayableUtils.SaveArrayStream(this.configuration, typesStream);
+                ReplayableConnectionGetTableTypes replayedConnectionGetTableTypes = FindPreviousConnectionGetTableTypes(false);
 
-                return typesStream;
+                if (replayedConnectionGetTableTypes != null)
+                {
+                    if (this.configuration.SavePreviousResults)
+                    {
+                        replayedConnectionGetTableTypes.PreviousResults.Add(new ReplayableItem() { Location = replayedConnectionGetTableTypes.Location });
+                    }
+                    else if (File.Exists(replayedConnectionGetTableTypes.Location))
+                    {
+                        File.Delete(replayedConnectionGetTableTypes.Location);
+                    }
+                }
+                else
+                {
+                    RecordBatch recordBatch = stream.ReadNextRecordBatchAsync().Result;
+                    StringArray stringArray = (StringArray)recordBatch.Column("table_type");
+                    List<string> tableTypes = new List<string>();
+
+                    for (int i = 0; i < stringArray.Length; i++)
+                    {
+                        string value = stringArray.GetString(i);
+
+                        if (!string.IsNullOrEmpty(value))
+                            tableTypes.Add(value);
+                    }
+
+                    ReplayableConnectionGetTableTypes gtt = new ReplayableConnectionGetTableTypes()
+                    {
+                        TableTypes = ConcatenateItems(tableTypes)
+                    };
+
+                    cache.ReplayableConnectionGetTableTypes.Add(gtt);
+                }
+
+                cache.Save();
+
+                // now play it back because it was only read-forward
+                return ReplayableUtils.GetReplayedArrayStream(location);
             }
             else
             {
-                throw new NotSupportedException();
+                ReplayableConnectionGetTableTypes replayedConnectionGetTableTypes = FindPreviousConnectionGetTableTypes();
+                return ReplayableUtils.GetReplayedArrayStream(replayedConnectionGetTableTypes.Location);
             }
         }
 
@@ -197,5 +307,101 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         {
             this.replayableConnection?.Dispose();
         }
+
+        private ReplayableConnectionGetObjects? FindPreviousConnectionGetObjects(
+            GetObjectsDepth depth,
+            string catalogPattern,
+            string dbSchemaPattern,
+            string tableNamePattern,
+            List<string> tableTypes,
+            string columnNamePattern,
+            bool throwErrorIfNotFound = true)
+        {
+            ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+            ReplayableConnectionGetObjects? replayedConnectionGetObjects =
+                   cache.ReplayableConnectionGetObjects.FirstOrDefault(x =>
+                           x.CatalogPattern != null && x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.DbSchemaPattern != null && x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.TableNamePattern != null && x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.ColumnNamePattern != null && x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.Depth == depth &&
+                           x.TableTypes != null && x.TableTypes.Equals(ConcatenateItems(tableTypes), StringComparison.OrdinalIgnoreCase)
+               );
+
+            if (replayedConnectionGetObjects == null && throwErrorIfNotFound)
+                throw new InvalidOperationException("cannot obtain the cache for GetObjects");
+
+            return replayedConnectionGetObjects;
+        }
+
+        private ReplayableConnectionGetTableSchema? FindPreviousConnectionGetTableSchema(
+          string catalog,
+          string dbSchema,
+          string tableName,
+          bool throwErrorIfNotFound = true)
+        {
+            ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+            ReplayableConnectionGetTableSchema? replayedConnectionGetTableSchema =
+                   cache.ReplayableConnectionGetTableSchema.FirstOrDefault(x =>
+                           x.Catalog != null && x.Catalog.Equals(catalog, StringComparison.OrdinalIgnoreCase) &&
+                           x.DbSchema != null && x.DbSchema.Equals(dbSchema, StringComparison.OrdinalIgnoreCase) &&
+                           x.TableName != null && x.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase)
+            );
+
+            if (replayedConnectionGetTableSchema == null && throwErrorIfNotFound)
+                throw new InvalidOperationException("cannot obtain the cache for GetObjects");
+
+            return replayedConnectionGetTableSchema;
+        }
+
+        private ReplayableConnectionGetInfo? FindPreviousConnectionGetInfo(
+            List<AdbcInfoCode> adbcInfoCodes,
+            bool throwErrorIfNotFound = true)
+        {
+            ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+            ReplayableConnectionGetInfo? replayedConnectionGetInfo =
+                cache.ReplayableConnectionGetInfo.FirstOrDefault(
+                    x => x.AdbcInfoCodes != null &&
+                    x.AdbcInfoCodes.Equals(ConcatenateItems(adbcInfoCodes.Select(x => x.ToString()).ToList()), StringComparison.OrdinalIgnoreCase)
+            );
+
+            if (replayedConnectionGetInfo == null && throwErrorIfNotFound)
+                throw new InvalidOperationException("cannot obtain the cache for GetInfo");
+
+            return replayedConnectionGetInfo;
+        }
+
+        private ReplayableConnectionGetTableTypes? FindPreviousConnectionGetTableTypes(
+          bool throwErrorIfNotFound = true)
+        {
+            ReplayCache cache = ReplayCache.LoadReplayCache(this.configuration);
+
+            ReplayableConnectionGetTableTypes? replayedConnectionGetTableTypes = cache.ReplayableConnectionGetTableTypes.FirstOrDefault();
+
+            if (replayedConnectionGetTableTypes == null && throwErrorIfNotFound)
+                throw new InvalidOperationException("cannot obtain the cache for GetTableTypes");
+
+            return replayedConnectionGetTableTypes;
+        }
+
+        private string ConcatenateItems(List<string> items)
+        {
+            if(items == null)
+                throw new ArgumentNullException(nameof(items));
+
+            if(items.Count == 0)
+                return string.Empty;
+
+            return string.Concat(items, '-');
+        }
+
+        private string GetCacheName()
+        {
+            return this.replayableConnection.GetType().Name + ".cache";
+        }
+
     }
 }

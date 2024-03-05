@@ -17,81 +17,48 @@
 
 -->
 
-# BigQuery
-The BigQuery ADBC driver wraps a [BigQueryClient](https://cloud.google.com/dotnet/docs/reference/Google.Cloud.BigQuery.V2/latest/Google.Cloud.BigQuery.V2.BigQueryClient) object for working with [Google BigQuery](https://cloud.google.com/bigquery/) data.
+# Replayable Driver
+The Replayable ADBC driver wraps any `AdbcDriver` and can be used to record and replay data. This is useful in scenarios such as:
 
-# Supported Features
+- Regression testing - no live connection, can run as a checkin test.
+- Troubleshooting issues - ask the user to re-run their query in a "record" mode, and save the results so they can be replayed.
 
-## Authentication
+# Options
 
-The ADBC driver supports both Service and User accounts for use with [BigQuery authentication](https://cloud.google.com/bigquery/docs/authentication/).
+The following options can be used to configure the driver behavior. The parameters are case sensitive.
 
-## Authorization
+**adbc.replayable.mode**<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the mode of the driver. Uses `replay` by default. 
 
-The ADBC driver passes the configured credentials to BigQuery, but you may need to ensure the credentials have proper [authorization](https://cloud.google.com/bigquery/docs/authorization/) to perform operations such as read and write.
+**adbc.replayable.directory**<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Optional. The directory to save the files to. Uses the current directory by default.
 
-## Parameters
+**adbc.replayable.save_previous_results**<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Optional. Indicates if previous results for the query should be saved. If not, the previous items are removed from the cache. The default value is `false`.
 
-The following parameters can be used to configure the driver behavior. The parameters are case sensitive.
+# Sample Usage
+Below is a sample for how to use the ReplayableDriver with an existing AdbcDriver. The sample uses the [BigQueryDriver](https://github.com/apache/arrow-adbc/tree/main/csharp/src/Drivers/BigQuery) for demonstration purposes. 
+```
+// initialize the ReplayableDriver and pass in the BigQueryDriver
+ReplayableDriver rd = new ReplayableDriver(new BigQueryDriver());
 
-**adbc.bigquery.allow_large_results**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Sets the [AllowLargeResults](https://cloud.google.com/dotnet/docs/reference/Google.Cloud.BigQuery.V2/latest/Google.Cloud.BigQuery.V2.QueryOptions#Google_Cloud_BigQuery_V2_QueryOptions_AllowLargeResults) value of the QueryOptions to `true` if configured; otherwise, the default is `false`.
+// add the driver's parameters as usual (in this case, for BigQuery)
+Dictionary<string, string> bqParameters = GetBigQueryParameters();
+AdbcDatabase db = rd.Open(bqParameters);
 
-**adbc.bigquery.auth_type**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Required. Must be `user` or `service`
+// add options to connect with the ReplayableParameters
+// these do not get passed on to the underlying AdbcDriver. 
+Dictionary<string, string> options = new Dictionary<string, string>()
+{
+    // if recording, indicate record mode
+    // otherwise, use ReplayMode
+    { ReplayableParameters.Mode, ReplayableConstants.RecordMode }
+};
 
-https://cloud.google.com/dotnet/docs/reference/Google.Cloud.BigQuery.V2/latest/Google.Cloud.BigQuery.V2.QueryOptions#Google_Cloud_BigQuery_V2_QueryOptions_AllowLargeResults
+AdbcConnection cn = db.Connect(options);
+AdbcStatement stmt = cn.CreateStatement();
+stmt.SqlQuery = "<QUERY>";
+QueryResult queryResult = stmt.ExecuteQuery();
+// ...
 
-**adbc.bigquery.client_id**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;The OAuth client ID. Required for `user` authentication.
-
-**adbc.bigquery.client_secret**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;The OAuth client secret. Required for `user` authentication.
-
-**adbc.bigquery.auth_json_credential**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Required if using `service` authentication. This value is passed to the [GoogleCredential.FromJson](https://cloud.google.com/dotnet/docs/reference/Google.Apis/latest/Google.Apis.Auth.OAuth2.GoogleCredential#Google_Apis_Auth_OAuth2_GoogleCredential_FromJson_System_String) method.
-
-**adbc.bigquery.include_constraints_getobjects**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Optional. Some callers do not need the constraint details when they get the table information and can improve the speed of obtaining the results. Setting this value to `"false"` will not include the constraint details. The default value is `"true"`.
-
-**adbc.bigquery.large_results_destination_table**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the [DestinationTable](https://cloud.google.com/dotnet/docs/reference/Google.Cloud.BigQuery.V2/latest/Google.Cloud.BigQuery.V2.QueryOptions#Google_Cloud_BigQuery_V2_QueryOptions_DestinationTable) value of the QueryOptions if configured. Expects the format to be `{projectId}.{datasetId}.{tableId}` to set the corresponding values in the [TableReference](https://github.com/googleapis/google-api-dotnet-client/blob/6c415c73788b848711e47c6dd33c2f93c76faf97/Src/Generated/Google.Apis.Bigquery.v2/Google.Apis.Bigquery.v2.cs#L9348) class.
-
-**adbc.bigquery.project_id**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;The [Project ID](https://cloud.google.com/resource-manager/docs/creating-managing-projects) used for accessing BigQuery.
-
-**adbc.bigquery.refresh_token**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;The refresh token used for when the generated OAuth token expires. Required for `user` authentication.
-
-**adbc.bigquery.scopes**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Optional. Comma separated list of scopes to include for the credential.
-
-**adbc.bigquery.use_legacy_sql**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Sets the [UseLegacySql](https://cloud.google.com/dotnet/docs/reference/Google.Cloud.BigQuery.V2/latest/Google.Cloud.BigQuery.V2.QueryOptions#Google_Cloud_BigQuery_V2_QueryOptions_UseLegacySql) value of the QueryOptions to `true` if configured; otherwise, the default is `false`.
-
-
-## Type Support
-
-There are some limitations to both C# and the C# Arrow implementation that limit how [BigQuery data types](https://cloud.google.com/bigquery/docs/reference/standard-sql/data-types) that can be represented by the ADBC driver. For example, the `BIGNUMERIC` type in BigQuery does not have a large value equivalent to C#.
-
-The following table depicts how the BigQuery ADBC driver converts a BigQuery type to an Arrow type.
-
-|  BigQuery Type   |      Arrow Type   | C# Type
-|----------|:-------------:|
-| BIGNUMERIC |    Decimal256    | string
-| BOOL |    Boolean   | bool
-| BYTES |    Binary   | byte[]
-| DATE |    Date64   | DateTime
-| DATETIME |    Timestamp   | DateTime
-| FLOAT64 |    Double   | double
-| GEOGRAPHY |    String   | string
-| INT64 |    Int64   | long
-| NUMERIC |    Decimal128   | SqlDecimal
-| STRING |    String   | string
-| STRUCT |    String+   | string
-| TIME |Time64   | long
-| TIMESTAMP |    Timestamp   | DateTimeOffset
-
-+A JSON string
-
-See [Arrow Schema Details](https://cloud.google.com/bigquery/docs/reference/storage/#arrow_schema_details) for how BigQuery handles Arrow types.
+```
