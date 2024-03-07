@@ -14,6 +14,7 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -28,6 +29,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         public ReplayableConfiguration()
         {
             SavePreviousResults = false;
+            AutoRecord = true;
         }
 
         /// <summary>
@@ -44,15 +46,20 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         /// Whether to save previous results or not.
         /// </summary>
         public bool SavePreviousResults { get; set; }
+
+        /// <summary>
+        /// Whether to record results that were attempted to be replayed but did not exist.
+        /// </summary>
+        public bool AutoRecord { get; set; }
     }
 
-    /// <summary>
-    /// Represts the cache for recorded results to be played back.
-    /// </summary>
     public class ReplayCache
     {
+        private ReplayableConfiguration configuration;
+
         public ReplayCache()
         {
+            this.configuration = new ReplayableConfiguration();
             this.ReplayableConnectionGetObjects = new List<ReplayableConnectionGetObjects>();
             this.ReplayableQueryResults = new List<ReplayableQueryResult>();
             this.ReplayableUpdateResults = new List<ReplayableQueryResult>();
@@ -60,8 +67,6 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             this.ReplayableConnectionGetTableTypes = new List<ReplayableConnectionGetTableTypes>();
             this.ReplayableConnectionGetTableSchema = new List<ReplayableConnectionGetTableSchema>();
         }
-
-        private ReplayableConfiguration? configuration;
 
         public List<ReplayableConnectionGetObjects> ReplayableConnectionGetObjects { get; set; }
 
@@ -75,7 +80,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
         public List<ReplayableConnectionGetTableTypes> ReplayableConnectionGetTableTypes { get; set; }
 
-        public static void Create(ReplayableConfiguration config)
+        private static void Create(ReplayableConfiguration config)
         {
             ReplayCache cache = new ReplayCache();
             cache.configuration = config;
@@ -84,9 +89,20 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
         public static ReplayCache LoadReplayCache(ReplayableConfiguration config)
         {
+            if (config == null)
+                throw new ArgumentNullException(nameof(config));
+
+            if (string.IsNullOrEmpty(config.FileLocation))
+                throw new InvalidDataException("ReplayableConfiguration.FileLocation cannot be null or empty");
+
+            if(!File.Exists(config.FileLocation))
+            {
+                Create(config);
+            }
+
             string json = File.ReadAllText(config.FileLocation);
 
-            ReplayCache? cache = JsonSerializer.Deserialize<ReplayCache>(json);
+            ReplayCache cache = JsonSerializer.Deserialize<ReplayCache>(json);
             cache.configuration = config;
             return cache;
         }
@@ -94,7 +110,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         public void Save()
         {
             string json = JsonSerializer.Serialize(this);
-            File.WriteAllText(this.configuration?.FileLocation, json);
+            File.WriteAllText(this.configuration.FileLocation, json);
         }
     }
 }

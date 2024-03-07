@@ -116,7 +116,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
                     catalogPattern: catalogName,
                     dbSchemaPattern: schemaName,
                     tableNamePattern: tableName,
-                    tableTypes: new List<string> { "BASE TABLE", "VIEW" },
+                    tableTypes: new List<string> { "BASE TABLE", "VIEW", "CLONE" },
                     columnNamePattern: columnName);
 
             RecordBatch recordBatch = stream.ReadNextRecordBatchAsync().Result;

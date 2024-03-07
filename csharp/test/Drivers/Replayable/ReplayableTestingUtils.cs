@@ -16,10 +16,9 @@
 */
 
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
 using Apache.Arrow.Adbc.Drivers.BigQuery;
+using Apache.Arrow.Adbc.Drivers.Replayable;
+using Apache.Arrow.Adbc.Tests.Drivers.BigQuery;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 {
@@ -27,101 +26,47 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
     {
         internal const string REPLAYABLE_TEST_CONFIG_VARIABLE = "REPLAYABLE_TEST_CONFIG_FILE";
 
-        ///// <summary>
-        ///// Gets a the BigQuery ADBC driver with settings from the <see cref="BigQueryTestConfiguration"/>.
-        ///// </summary>
-        ///// <param name="testConfiguration"><see cref="BigQueryTestConfiguration"/></param>
-        ///// <param name="parameters"></param>
-        ///// <returns></returns>
-        //internal static AdbcConnection GetBigQueryAdbcConnection(
-        //    BigQueryTestConfiguration testConfiguration
-        //   )
-        //{
-        //    Dictionary<string, string> parameters = GetBigQueryParameters(testConfiguration);
-        //    AdbcDatabase database = new BigQueryDriver().Open(parameters);
-        //    AdbcConnection connection = database.Connect(new Dictionary<string,string>());
+        /// <summary>
+        /// Gets a replayable BigQuery ADBC driver with settings from the <see cref="BigQueryTestConfiguration"/>.
+        /// </summary>
+        /// <param name="replayableTestConfiguration"><see cref="ReplayableTestConfiguration"/></param>
+        /// <param name="bigQueryTestConfiguration"><see cref="BigQueryTestConfiguration"/></param>
+        /// <returns></returns>
+        internal static AdbcConnection GetReplayableBigQueryAdbcConnection(
+            ReplayableTestConfiguration replayableTestConfiguration,
+            BigQueryTestConfiguration bigQueryTestConfiguration
+           )
+        {
+            BigQueryDriver bd = new BigQueryDriver();
+            ReplayableDriver rd = new ReplayableDriver(bd);
 
-        //    return connection;
-        //}
+            Dictionary<string, string> bqParameters = BigQueryTestingUtils.GetBigQueryParameters(bigQueryTestConfiguration);
+            AdbcDatabase db = rd.Open(bqParameters);
 
-        ///// <summary>
-        ///// Gets the parameters for connecting to BigQuery.
-        ///// </summary>
-        ///// <param name="testConfiguration"><see cref="BigQueryTestConfiguration"/></param>
-        ///// <returns></returns>
-        //internal static Dictionary<string,string> GetBigQueryParameters(BigQueryTestConfiguration testConfiguration)
-        //{
-        //    Dictionary<string, string> parameters = new Dictionary<string, string>
-        //    {
-        //       { BigQueryParameters.ProjectId, testConfiguration.ProjectId },
-        //    };
+            Dictionary<string, string> options = GetReplayableOptions(replayableTestConfiguration);
 
-        //    if (!string.IsNullOrEmpty(testConfiguration.JsonCredential))
-        //    {
-        //        parameters.Add(BigQueryParameters.AuthenticationType, BigQueryConstants.ServiceAccountAuthenticationType);
-        //        parameters.Add(BigQueryParameters.JsonCredential, testConfiguration.JsonCredential);
-        //    }
-        //    else
-        //    {
-        //        parameters.Add(BigQueryParameters.AuthenticationType, BigQueryConstants.UserAuthenticationType);
-        //        parameters.Add(BigQueryParameters.ClientId, testConfiguration.ClientId);
-        //        parameters.Add(BigQueryParameters.ClientSecret, testConfiguration.ClientSecret);
-        //        parameters.Add(BigQueryParameters.RefreshToken, testConfiguration.RefreshToken);
-        //    }
+            AdbcConnection cn = db.Connect(options);
 
-        //    if (!string.IsNullOrEmpty(testConfiguration.Scopes))
-        //    {
-        //        parameters.Add(BigQueryParameters.Scopes, testConfiguration.Scopes);
-        //    }
+            return cn;
+        }
 
-        //    if (testConfiguration.AllowLargeResults)
-        //    {
-        //        parameters.Add(BigQueryParameters.AllowLargeResults, testConfiguration.AllowLargeResults.ToString());
-        //    }
+        /// <summary>
+        /// Gets the options for connecting to the Replayable driver.
+        /// </summary>
+        /// <param name="testConfiguration"><see cref="ReplayableTestConfiguration"/></param>
+        /// <returns></returns>
+        internal static Dictionary<string, string> GetReplayableOptions(ReplayableTestConfiguration testConfiguration)
+        {
+            Dictionary<string, string> options = new Dictionary<string, string>();
 
-        //    parameters.Add(BigQueryParameters.IncludeConstraintsWithGetObjects, testConfiguration.IncludeTableConstraints.ToString());
+            if (testConfiguration.ReplayMode == ReplayMode.Record)
+                options.Add(ReplayableOptions.Mode, ReplayableConstants.RecordMode);
+            else
+                options.Add(ReplayableOptions.Mode, ReplayableConstants.ReplayMode);
 
-        //    if (!string.IsNullOrEmpty(testConfiguration.LargeResultsDestinationTable))
-        //    {
-        //        parameters.Add(BigQueryParameters.LargeResultsDestinationTable, testConfiguration.LargeResultsDestinationTable);
-        //    }
+            options.Add(ReplayableOptions.SavePreviousResults, testConfiguration.SavePreviousResults.ToString());
 
-        //    return parameters;
-        //}
-
-        ///// <summary>
-        ///// Parses the queries from resources/BigQueryData.sql
-        ///// </summary>
-        ///// <param name="testConfiguration"><see cref="BigQueryTestConfiguration"/></param>
-        //internal static string[] GetQueries(BigQueryTestConfiguration testConfiguration)
-        //{
-        //    // get past the license header
-        //    StringBuilder content = new StringBuilder();
-
-        //    string placeholder = "{ADBC_CATALOG}.{ADBC_DATASET}.{ADBC_TABLE}";
-
-        //    string[] sql = File.ReadAllLines("resources/BigQueryData.sql");
-
-        //    foreach (string line in sql)
-        //    {
-        //        if (!line.TrimStart().StartsWith("--"))
-        //        {
-        //            if (line.Contains(placeholder))
-        //            {
-        //                string modifiedLine = line.Replace(placeholder, $"{testConfiguration.Metadata.Catalog}.{testConfiguration.Metadata.Schema}.{testConfiguration.Metadata.Table}");
-
-        //                content.AppendLine(modifiedLine);
-        //            }
-        //            else
-        //            {
-        //                content.AppendLine(line);
-        //            }
-        //        }
-        //    }
-
-        //    string[] queries = content.ToString().Split(";".ToCharArray()).Where(x => x.Trim().Length > 0).ToArray();
-
-        //    return queries;
-        //}
+            return options;
+        }
     }
 }

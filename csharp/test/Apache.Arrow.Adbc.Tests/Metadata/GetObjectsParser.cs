@@ -121,8 +121,35 @@ namespace Apache.Arrow.Adbc.Tests.Metadata
             StringArray xdbc_scope_catalog = (StringArray)columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_scope_catalog")];//		xdbc_scope_catalog | utf8
             StringArray xdbc_scope_schema = (StringArray)columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_scope_schema")]; //		xdbc_scope_schema | utf8
             StringArray xdbc_scope_table = (StringArray)columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_scope_table")]; //		xdbc_scope_table | utf8
-            BooleanArray xdbc_is_autoincrement = (BooleanArray)columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_is_autoincrement")]; //		xdbc_is_autoincrement | bool
-            BooleanArray xdbc_is_generatedcolumn = (BooleanArray)columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_is_generatedcolumn")]; //		xdbc_is_generatedcolumn | bool
+
+            // TODO: when this is replayed, it comes back as a string instead of a bool for some reason
+            BooleanArray xdbc_is_autoincrement_bool = null;
+            BooleanArray xdbc_is_generatedcolumn_bool = null;
+            StringArray xdbc_is_autoincrement_string = null;
+            StringArray xdbc_is_generatedcolumn_string = null;
+
+            IArrowArray xdbc_is_autoincrement = columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_is_autoincrement")]; //		xdbc_is_autoincrement | bool
+            IArrowArray xdbc_is_generatedcolumn = columnsArray.Fields[StandardSchemas.ColumnSchema.FindIndex(f => f.Name == "xdbc_is_generatedcolumn")]; //		xdbc_is_generatedcolumn | bool
+
+            switch(xdbc_is_autoincrement)
+            {
+                case StringArray xdbc_is_autoincrement_val:
+                    xdbc_is_autoincrement_string = xdbc_is_autoincrement_val;
+                    break;
+                default:
+                    xdbc_is_autoincrement_bool = (BooleanArray)xdbc_is_autoincrement;
+                    break;
+            }
+
+            switch (xdbc_is_generatedcolumn)
+            {
+                case StringArray xdbc_is_generatedcolumn_val:
+                    xdbc_is_generatedcolumn_string = xdbc_is_generatedcolumn_val;
+                    break;
+                default:
+                    xdbc_is_generatedcolumn_bool = (BooleanArray)xdbc_is_generatedcolumn;
+                    break;
+            }
 
             for (int i = 0; i < columnsArray.Length; i++)
             {
@@ -144,9 +171,35 @@ namespace Apache.Arrow.Adbc.Tests.Metadata
                 c.XdbcScopeCatalog = xdbc_scope_catalog.GetString(i);
                 c.XdbcScopeSchema = xdbc_scope_schema.GetString(i);
                 c.XdbcScopeTable = xdbc_scope_table.GetString(i);
-                c.XdbcIsAutoIncrement = xdbc_is_autoincrement.GetValue(i);
-                c.XdbcIsGeneratedColumn = xdbc_is_generatedcolumn.GetValue(i);
 
+                if (xdbc_is_autoincrement_bool != null)
+                {
+                    c.XdbcIsAutoIncrement = xdbc_is_autoincrement_bool.GetValue(i);
+                }
+                else
+                {
+                    try
+                    {
+                        string value = xdbc_is_autoincrement_string.GetString(i);
+                        if (bool.TryParse(value, out bool result))
+                            c.XdbcIsAutoIncrement = result;
+                    }
+                    catch { }
+                }
+                if (xdbc_is_generatedcolumn_bool != null)
+                {
+                    c.XdbcIsGeneratedColumn = xdbc_is_generatedcolumn_bool.GetValue(i);
+                }
+                else
+                {
+                    try
+                    {
+                        //   System.ArgumentOutOfRangeException : Specified argument was out of the range of valid values.
+                        string value = xdbc_is_generatedcolumn_string.GetString(i);
+                        if (bool.TryParse(value, out bool result))
+                            c.XdbcIsGeneratedColumn = result;
+                    } catch { }
+                }
                 columns.Add(c);
             }
 

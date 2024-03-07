@@ -86,6 +86,20 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             return recordBatches;
         }
 
+        internal static Schema GetReplayedSchema(string location)
+        {
+            Schema schema = null;
+            using (FileStream fs = new FileStream(location, FileMode.Open))
+            using (ArrowFileReader reader = new ArrowFileReader(fs))
+            {
+                // need to read something to populate the Schema
+                reader.RecordBatchCountAsync().AsTask().Wait();
+                schema = reader.Schema;
+            }
+
+            return schema;
+        }
+
         internal static string SaveArrayStream(ReplayableConfiguration config, IArrowArrayStream stream)
         {
             string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
@@ -113,7 +127,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         {
             string location = Path.Combine(Path.GetDirectoryName(config.FileLocation), Guid.NewGuid().ToString() + ".arrow");
 
-            using (FileStream fs = new FileStream(location, FileMode.Open))
+            using (FileStream fs = new FileStream(location, FileMode.Create))
             using (ArrowFileWriter arrowFileWriter = new ArrowFileWriter(fs, schema, leaveOpen: false, new IpcOptions() { WriteLegacyIpcFormat = true }))
             {
                 arrowFileWriter.WriteStart();

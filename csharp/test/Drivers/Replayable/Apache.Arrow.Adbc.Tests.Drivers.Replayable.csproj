@@ -3,7 +3,6 @@
      <TargetFrameworks>net472;net6.0</TargetFrameworks>
    </PropertyGroup>
     <ItemGroup>
-      <Compile Remove="BigQueryTestConfiguration.cs" />
       <Compile Remove="ClientTests.cs" />
     </ItemGroup>
     <ItemGroup>
@@ -24,11 +23,30 @@
      <ProjectReference Include="..\BigQuery\Apache.Arrow.Adbc.Tests.Drivers.BigQuery.csproj" />
    </ItemGroup>
     <ItemGroup>
-     <None Update="Resources\BigQueryData.sql">
-       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-     </None>
-     <None Update="Resources\bigqueryconfig.json">
-       <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-     </None>
-   </ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\win-x64\native\grpc_csharp_ext.x64.dll" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\win-x86\native\grpc_csharp_ext.x86.dll" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\osx-x64\native\libgrpc_csharp_ext.x64.dylib" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\linux-x64\native\libgrpc_csharp_ext.x64.so" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\win-x64\native\grpc_csharp_ext.x64.dll" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\win-x86\native\grpc_csharp_ext.x86.dll" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\osx-x64\native\libgrpc_csharp_ext.x64.dylib" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\linux-x64\native\libgrpc_csharp_ext.x64.so" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Remove="C:\Users\davidcoe\.nuget\packages\grpc.core\2.46.6\build\net45\..\..\runtimes\win-x64\native\grpc_csharp_ext.x64.dll" />
+    </ItemGroup>
  </Project>

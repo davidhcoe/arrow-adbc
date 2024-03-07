@@ -27,8 +27,11 @@ The Replayable ADBC driver wraps any `AdbcDriver` and can be used to record and 
 
 The following options can be used to configure the driver behavior. The parameters are case sensitive.
 
-**adbc.replayable.mode**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the mode of the driver. Uses `replay` by default. 
+**adbc.replayable.replay_mode**<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the replay mode of the driver. Uses `replay` by default. If the result is not available to be replayed, then it will be automatically recorded, unless overridden by the `adbc.replayable.auto_record` setting.
+
+**adbc.replayable.auto_record**<br>
+&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the automatic record mode of the driver. The default value is Uses `true`.
 
 **adbc.replayable.directory**<br>
 &nbsp;&nbsp;&nbsp;&nbsp;Optional. The directory to save the files to. Uses the current directory by default.
@@ -37,7 +40,7 @@ The following options can be used to configure the driver behavior. The paramete
 &nbsp;&nbsp;&nbsp;&nbsp;Optional. Indicates if previous results for the query should be saved. If not, the previous items are removed from the cache. The default value is `false`.
 
 # Sample Usage
-Below is a sample for how to use the ReplayableDriver with an existing AdbcDriver. The sample uses the [BigQueryDriver](https://github.com/apache/arrow-adbc/tree/main/csharp/src/Drivers/BigQuery) for demonstration purposes. 
+Below is a sample for how to use the ReplayableDriver with an existing AdbcDriver. The sample uses the [BigQueryDriver](https://github.com/apache/arrow-adbc/tree/main/csharp/src/Drivers/BigQuery) for demonstration purposes.
 ```
 // initialize the ReplayableDriver and pass in the BigQueryDriver
 ReplayableDriver rd = new ReplayableDriver(new BigQueryDriver());
@@ -47,7 +50,7 @@ Dictionary<string, string> bqParameters = GetBigQueryParameters();
 AdbcDatabase db = rd.Open(bqParameters);
 
 // add options to connect with the ReplayableParameters
-// these do not get passed on to the underlying AdbcDriver. 
+// these do not get passed on to the underlying AdbcDriver.
 Dictionary<string, string> options = new Dictionary<string, string>()
 {
     // if recording, indicate record mode

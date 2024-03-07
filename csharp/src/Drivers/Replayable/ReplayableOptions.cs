@@ -22,9 +22,10 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
     /// </summary>
     public class ReplayableOptions
     {
-        public const string Mode = "adbc.replayable.mode";
-        public const string DirectoryLocation = "adbc.replayable.directory";
-        public const string SavePreviousResults = "adbc.replayable.save_previous_results";
+        public const string Mode = ReplayableConstants.ReplayablePrefix + "mode";
+        public const string DirectoryLocation = ReplayableConstants.ReplayablePrefix + "directory";
+        public const string SavePreviousResults = ReplayableConstants.ReplayablePrefix + "save_previous_results";
+        public const string AutoRecord = ReplayableConstants.ReplayablePrefix + "auto_record";
     }
 
     public class ReplayableConstants
