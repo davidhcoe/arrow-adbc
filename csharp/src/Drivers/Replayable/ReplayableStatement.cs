@@ -15,6 +15,7 @@
 * limitations under the License.
 */
 
+using System.Data.Common;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -75,8 +76,6 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
                     if (replayedQueryResult != null)
                     {
-                        //bool removed = cache.ReplayableQueryResults.Remove();
-
                         if (this.savePreviousResults)
                         {
                             replayedQueryResult.PreviousResults.Add(new PreviousQueryResult() { RowCount = replayedQueryResult.RowCount, Location = replayedQueryResult.Location });
@@ -88,9 +87,6 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
                         replayedQueryResult.Location = resultsLocation;
                         replayedQueryResult.RowCount = result.RowCount;
-
-                        //cache.ReplayableQueryResults.Add(replayedQueryResult);
-                        Debug.WriteLine("stop here");
                     }
                     else
                     {
@@ -138,10 +134,6 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                     {
                         replayedUpdateResult.PreviousResults.Add(new PreviousQueryResult() { RowCount = replayedUpdateResult.RowCount });
                     }
-                    else
-                    {
-                        File.Delete(replayedUpdateResult.Location);
-                    }
 
                     replayedUpdateResult.RowCount = updateResult.AffectedRows;
                 }
@@ -152,7 +144,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                     qr.RowCount = updateResult.AffectedRows;
                     qr.Type = ReplayableQueryResultType.Update;
                     qr.Location = null;
-                    this.replayCache.ReplayableQueryResults.Add(qr);
+                    this.replayCache.ReplayableUpdateResults.Add(qr);
                 }
 
                 this.replayCache.Save();

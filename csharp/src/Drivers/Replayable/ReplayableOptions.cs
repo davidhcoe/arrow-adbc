@@ -28,6 +28,9 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         public const string AutoRecord = ReplayableConstants.ReplayablePrefix + "auto_record";
     }
 
+    /// <summary>
+    /// Constants for variables.
+    /// </summary>
     public class ReplayableConstants
     {
         public const string ReplayablePrefix = "adbc.replayable.";

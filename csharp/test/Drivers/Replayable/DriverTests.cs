@@ -16,7 +16,6 @@
 */
 
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -26,13 +25,14 @@ using Apache.Arrow.Adbc.Tests.Drivers.BigQuery;
 using Apache.Arrow.Adbc.Tests.Metadata;
 using Apache.Arrow.Adbc.Tests.Xunit;
 using Apache.Arrow.Ipc;
+using Google.Cloud.BigQuery.Storage.V1;
 using Xunit;
 using static Apache.Arrow.Adbc.AdbcConnection;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 {
     /// <summary>
-    /// Class for testing the Snowflake ADBC driver connection tests.
+    /// Class for testing the Replayable ADBC driver connection tests.
     /// </summary>
     /// <remarks>
     /// Tests are ordered to ensure data is created for the other
@@ -63,25 +63,65 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// Validates if the driver can connect to a live server and
         /// parse the results.
         /// </summary>
-        [SkippableFact, Order(1)]
-        public void CanExecuteUpdate()
+        [SkippableTheory, Order(1)]
+        [InlineData(ReplayMode.Record, false)]
+        [InlineData(ReplayMode.Replay, true)]
+        [InlineData(ReplayMode.Record, true)]
+        public void CanExecuteUpdate(ReplayMode replayMode, bool savePreviousResults)
         {
-            //AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
+            int previousResults = 0;
 
-            //string[] queries = BigQueryTestingUtils.GetQueries(_bigQueryTestConfiguration);
+            ReplayableConfiguration config = new ReplayableConfiguration()
+            {
+                FileLocation = this._cacheLocation
+            };
 
-            //List<int> expectedResults = new List<int>() { -1, 1, 1 };
+            ReplayableTestConfiguration replayableTestConfiguration = _replayableTestConfiguration;
+            replayableTestConfiguration.ReplayMode = replayMode;
+            replayableTestConfiguration.SavePreviousResults = savePreviousResults;
 
-            //for (int i = 0; i < queries.Length; i++)
-            //{
-            //    string query = queries[i];
-            //    AdbcStatement statement = adbcConnection.CreateStatement();
-            //    statement.SqlQuery = query;
+            AdbcConnection adbcConnection = ReplayableTestingUtils.GetReplayableBigQueryAdbcConnection(replayableTestConfiguration, _bigQueryTestConfiguration);
 
-            //    UpdateResult updateResult = statement.ExecuteUpdate();
+            string[] queries = BigQueryTestingUtils.GetQueries(_bigQueryTestConfiguration);
 
-            //    Assert.Equal(expectedResults[i], updateResult.AffectedRows);
-            //}
+            List<int> expectedResults = new List<int>() { -1, 1, 1 };
+
+            for (int i = 0; i < queries.Length; i++)
+            {
+                string query = queries[i];
+
+                if(replayMode == ReplayMode.Replay)
+                {
+                    ReplayCache replayCache = ReplayCache.LoadReplayCache(config);
+                    previousResults = FindPreviousUpdateResult(replayCache, query).First().PreviousResults.Count;
+                }
+
+                AdbcStatement statement = adbcConnection.CreateStatement();
+                statement.SqlQuery = query;
+
+                UpdateResult updateResult = statement.ExecuteUpdate();
+
+                Assert.Equal(expectedResults[i], updateResult.AffectedRows);
+
+                ReplayCache cache = ReplayCache.LoadReplayCache(config);
+                List<ReplayableQueryResult> replayableUpdateResults = FindPreviousUpdateResult(cache, query);
+
+                // the item was added
+                Assert.True(replayableUpdateResults.Count() == 1);
+
+                // can replay the results without creating a new one
+                if (replayMode == ReplayMode.Replay)
+                {
+                    Assert.True(replayableUpdateResults.First().PreviousResults.Count == previousResults);
+                }
+
+                // can re-record and save previous results
+                if (replayMode == ReplayMode.Record && savePreviousResults)
+                {
+                    // the previous results are there and available
+                    Assert.True(replayableUpdateResults.First().PreviousResults.Count > 0);
+                }
+            }
         }
 
         /// <summary>
@@ -133,26 +173,8 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
             }
 
             ReplayCache cache = ReplayCache.LoadReplayCache(config);
-
-            // the item was added
-            Assert.True(FindReplayableConnectionGetInfo(cache, infoCodes).Count() == 1);
-
-            // the file was created
-            Assert.True(File.Exists(FindReplayableConnectionGetInfo(cache, infoCodes).Select(x => x.Location).First()));
-
-            // can replay the results without creating a new one
-            if (replayMode == ReplayMode.Replay)
-            {
-                Assert.True(FindReplayableConnectionGetInfo(cache, infoCodes).First().PreviousResults.Count == previousResults);
-            }
-
-            // can re-record and save previous results
-            if (replayMode == ReplayMode.Record && savePreviousResults)
-            {
-                // the previous results are there and available
-                Assert.True(FindReplayableConnectionGetInfo(cache, infoCodes).First().PreviousResults.Count > 0);
-                Assert.True(File.Exists(FindReplayableConnectionGetInfo(cache, infoCodes).First().PreviousResults.Last().Location));
-            }
+            List<ReplayableConnectionGetInfo> replayableConnectionGetInfos = FindReplayableConnectionGetInfo(cache, infoCodes);
+            AssertReplayItemsWithHistory(replayableConnectionGetInfos.Select(x => (ReplayableItemWithHistory)x).ToList(), replayMode, savePreviousResults, previousResults);
         }
 
         private List<ReplayableConnectionGetInfo> FindReplayableConnectionGetInfo(ReplayCache cache, List<AdbcInfoCode> infoCodes)
@@ -222,26 +244,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 
             ReplayCache cache = ReplayCache.LoadReplayCache(config);
             List<ReplayableConnectionGetObjects> replayableConnectionGetObjects = FindPreviousConnectionGetObjects(cache, depth, catalogName, schemaName, tableName, tableTypes, columnName);
-
-            // the item was added
-            Assert.True(replayableConnectionGetObjects.Count() == 1);
-
-            // the file was created
-            Assert.True(File.Exists(replayableConnectionGetObjects.Select(x => x.Location).First()));
-
-            // can replay the results without creating a new one
-            if (replayMode == ReplayMode.Replay)
-            {
-                Assert.True(replayableConnectionGetObjects.First().PreviousResults.Count == previousResults);
-            }
-
-            // can re-record and save previous results
-            if (replayMode == ReplayMode.Record && savePreviousResults)
-            {
-                // the previous results are there and available
-                Assert.True(replayableConnectionGetObjects.First().PreviousResults.Count > 0);
-                Assert.True(File.Exists(replayableConnectionGetObjects.First().PreviousResults.Last().Location));
-            }
+            AssertReplayItemsWithHistory(replayableConnectionGetObjects.Select(x => (ReplayableItemWithHistory)x).ToList(), replayMode, savePreviousResults, previousResults);
         }
 
         private List<ReplayableConnectionGetObjects> FindPreviousConnectionGetObjects(
@@ -305,24 +308,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 
             // the item was added
             List<ReplayableConnectionGetTableSchema> replayableConnectionGetTableSchemas = FindPreviousConnectionGetTableSchema(cache, catalogName, schemaName, tableName);
-            Assert.True(replayableConnectionGetTableSchemas.Count() == 1);
-
-            // the file was created
-            Assert.True(File.Exists(replayableConnectionGetTableSchemas.Select(x => x.Location).First()));
-
-            // can replay the results without creating a new one
-            if (replayMode == ReplayMode.Replay)
-            {
-                Assert.True(replayableConnectionGetTableSchemas.First().PreviousResults.Count == previousResults);
-            }
-
-            // can re-record and save previous results
-            if (replayMode == ReplayMode.Record && savePreviousResults)
-            {
-                // the previous results are there and available
-                Assert.True(replayableConnectionGetTableSchemas.First().PreviousResults.Count > 0);
-                Assert.True(File.Exists(replayableConnectionGetTableSchemas.First().PreviousResults.Last().Location));
-            }
+            AssertReplayItemsWithHistory(replayableConnectionGetTableSchemas.Select(x => (ReplayableItemWithHistory)x).ToList(), replayMode, savePreviousResults, previousResults);
         }
 
         private List<ReplayableConnectionGetTableSchema> FindPreviousConnectionGetTableSchema(
@@ -341,35 +327,58 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// <summary>
         /// Validates if the driver can call GetTableTypes.
         /// </summary>
-        [SkippableFact, Order(5)]
-        public void CanGetTableTypes()
+        [SkippableTheory, Order(5)]
+        [InlineData(ReplayMode.Record, false)]
+        [InlineData(ReplayMode.Replay, true)]
+        [InlineData(ReplayMode.Record, true)]
+        public void CanGetTableTypes(ReplayMode replayMode, bool savePreviousResults)
         {
-            //AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_bigQueryTestConfiguration);
+            int previousResults = 0;
 
-            //IArrowArrayStream arrowArrayStream = adbcConnection.GetTableTypes();
+            ReplayableConfiguration config = new ReplayableConfiguration()
+            {
+                FileLocation = this._cacheLocation,
+            };
 
-            //RecordBatch recordBatch = arrowArrayStream.ReadNextRecordBatchAsync().Result;
+            if (replayMode == ReplayMode.Replay)
+            {
+                ReplayCache replayCache = ReplayCache.LoadReplayCache(config);
+                previousResults = replayCache.ReplayableConnectionGetTableTypes.First().PreviousResults.Count;
+            }
 
-            //StringArray stringArray = (StringArray)recordBatch.Column("table_type");
+            ReplayableTestConfiguration replayableTestConfiguration = _replayableTestConfiguration;
+            replayableTestConfiguration.ReplayMode = replayMode;
+            replayableTestConfiguration.SavePreviousResults = savePreviousResults;
 
-            //List<string> known_types = new List<string>
-            //{
-            //    "BASE TABLE", "VIEW"
-            //};
+            AdbcConnection adbcConnection = ReplayableTestingUtils.GetReplayableBigQueryAdbcConnection(replayableTestConfiguration, _bigQueryTestConfiguration);
+            IArrowArrayStream arrowArrayStream = adbcConnection.GetTableTypes();
 
-            //int results = 0;
+            RecordBatch recordBatch = arrowArrayStream.ReadNextRecordBatchAsync().Result;
 
-            //for (int i = 0; i < stringArray.Length; i++)
-            //{
-            //    string value = stringArray.GetString(i);
+            StringArray stringArray = (StringArray)recordBatch.Column("table_type");
 
-            //    if (known_types.Contains(value))
-            //    {
-            //        results++;
-            //    }
-            //}
+            List<string> known_types = new List<string>
+            {
+                "BASE TABLE", "VIEW"
+            };
 
-            //Assert.Equal(known_types.Count, results);
+            int results = 0;
+
+            for (int i = 0; i < stringArray.Length; i++)
+            {
+                string value = stringArray.GetString(i);
+
+                if (known_types.Contains(value))
+                {
+                    results++;
+                }
+            }
+
+            Assert.Equal(known_types.Count, results);
+
+            ReplayCache cache = ReplayCache.LoadReplayCache(config);
+            List<ReplayableConnectionGetTableTypes> replayableConnectionGetTableTypes = cache.ReplayableConnectionGetTableTypes;
+            AssertReplayItemsWithHistory(replayableConnectionGetTableTypes.Select(x => (ReplayableItemWithHistory)x).ToList(), replayMode, savePreviousResults, previousResults);
         }
 
         /// <summary>
@@ -408,6 +417,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 
             Tests.DriverTests.CanExecuteQuery(queryResult, _bigQueryTestConfiguration.ExpectedResultsCount);
 
+            // can't just call AssertReplayableItems because QueryResult history is different
             ReplayCache cache = ReplayCache.LoadReplayCache(config);
             List<ReplayableQueryResult> replayableQueryResults = FindPreviousQueryResult(cache, _bigQueryTestConfiguration.Query);
 
@@ -436,6 +446,39 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         {
             List<ReplayableQueryResult> replayedResults = cache.ReplayableQueryResults.Where(x => x.Query == query).ToList();
             return replayedResults;
+        }
+
+        private List<ReplayableQueryResult> FindPreviousUpdateResult(ReplayCache cache, string query)
+        {
+            List<ReplayableQueryResult> replayedResults = cache.ReplayableUpdateResults.Where(x => x.Query == query).ToList();
+            return replayedResults;
+        }
+
+        private void AssertReplayItemsWithHistory(List<ReplayableItemWithHistory> replayableItems, ReplayMode replayMode, bool savePreviousResults, int previousResults)
+        {
+            Assert.True(replayableItems.Count() == 1);
+
+            // the file was created
+            Assert.True(File.Exists(replayableItems.Select(x => x.Location).First()));
+
+            ReplayableItemWithHistory replayableItemWithHistory = replayableItems.First();
+
+            if (replayableItemWithHistory != null)
+            {
+                // can replay the results without creating a new one
+                if (replayMode == ReplayMode.Replay)
+                {
+                    Assert.True(replayableItemWithHistory.PreviousResults.Count == previousResults);
+                }
+
+                // can re-record and save previous results
+                if (replayMode == ReplayMode.Record && savePreviousResults)
+                {
+                    // the previous results are there and available
+                    Assert.True(replayableItemWithHistory.PreviousResults.Count > 0);
+                    Assert.True(File.Exists(replayableItemWithHistory.PreviousResults.Last().Location));
+                }
+            }
         }
     }
 }

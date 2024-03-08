@@ -281,10 +281,14 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                     {
                         File.Delete(replayedConnectionGetTableTypes.Location);
                     }
+
+                    replayedConnectionGetTableTypes.Location = location;
                 }
                 else
                 {
-                    RecordBatch recordBatch = stream.ReadNextRecordBatchAsync().Result;
+                    // play it back to parse the results
+                    IArrowArrayStream replayedStream = ReplayableUtils.GetReplayedArrayStream(location);
+                    RecordBatch recordBatch = replayedStream.ReadNextRecordBatchAsync().Result;
                     StringArray stringArray = (StringArray)recordBatch.Column("table_type");
                     List<string> tableTypes = new List<string>();
 
@@ -306,7 +310,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
                 this.replayCache.Save();
 
-                // now play it back because it was only read-forward
+                // now play it back for the caller
                 return ReplayableUtils.GetReplayedArrayStream(location);
             }
 
@@ -353,9 +357,9 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         {
             ReplayableConnectionGetTableSchema? replayedConnectionGetTableSchema =
                    this.replayCache.ReplayableConnectionGetTableSchema.FirstOrDefault(x =>
-                           x.Catalog != null && x.Catalog.Equals(catalog, StringComparison.OrdinalIgnoreCase) &&
-                           x.DbSchema != null && x.DbSchema.Equals(dbSchema, StringComparison.OrdinalIgnoreCase) &&
-                           x.TableName != null && x.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase)
+                           x.Catalog.Equals(catalog, StringComparison.OrdinalIgnoreCase) &&
+                           x.DbSchema.Equals(dbSchema, StringComparison.OrdinalIgnoreCase) &&
+                           x.TableName.Equals(tableName, StringComparison.OrdinalIgnoreCase)
             );
 
             return replayedConnectionGetTableSchema;

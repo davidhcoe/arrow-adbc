@@ -51,7 +51,6 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.BigQuery
         [SkippableFact, Order(1)]
         public void CanExecuteUpdate()
         {
-
             AdbcConnection adbcConnection = BigQueryTestingUtils.GetBigQueryAdbcConnection(_testConfiguration);
 
             string[] queries = BigQueryTestingUtils.GetQueries(_testConfiguration);

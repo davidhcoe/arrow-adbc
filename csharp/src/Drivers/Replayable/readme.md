@@ -31,7 +31,7 @@ The following options can be used to configure the driver behavior. The paramete
 &nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the replay mode of the driver. Uses `replay` by default. If the result is not available to be replayed, then it will be automatically recorded, unless overridden by the `adbc.replayable.auto_record` setting.
 
 **adbc.replayable.auto_record**<br>
-&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the automatic record mode of the driver. The default value is Uses `true`.
+&nbsp;&nbsp;&nbsp;&nbsp;Optional. Sets the automatic record mode of the driver. The default value is `true`.
 
 **adbc.replayable.directory**<br>
 &nbsp;&nbsp;&nbsp;&nbsp;Optional. The directory to save the files to. Uses the current directory by default.
