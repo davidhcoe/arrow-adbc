@@ -25,7 +25,6 @@ using Apache.Arrow.Adbc.Tests.Drivers.BigQuery;
 using Apache.Arrow.Adbc.Tests.Metadata;
 using Apache.Arrow.Adbc.Tests.Xunit;
 using Apache.Arrow.Ipc;
-using Google.Cloud.BigQuery.Storage.V1;
 using Xunit;
 using static Apache.Arrow.Adbc.AdbcConnection;
 

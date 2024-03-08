@@ -23,6 +23,9 @@ The Replayable ADBC driver wraps any `AdbcDriver` and can be used to record and 
 - Regression testing - no live connection, can run as a checkin test.
 - Troubleshooting issues - ask the user to re-run their query in a "record" mode, and save the results so they can be replayed.
 
+## How it Works
+The cache is saved as `{AdbcConnectionClassName}.cache` in the directory that is dictated by the  `adbc.replayable.directory` value. This file is just a json file that contains pointers to files that have been written using the `ArrowFileWriter` and saved as `.arrow`. When a replay occurs, the record batches are replayed from the `.arrow` files that are present on the file system.
+
 # Options
 
 The following options can be used to configure the driver behavior. The parameters are case sensitive.
