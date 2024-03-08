@@ -58,16 +58,16 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         public GetObjectsDepth Depth { get; set; }
 
         [JsonPropertyName("catalog")]
-        public string? CatalogPattern { get; set; }
+        public string CatalogPattern { get; set; }
 
         [JsonPropertyName("schema")]
-        public string? DbSchemaPattern { get; set; }
+        public string DbSchemaPattern { get; set; }
 
         [JsonPropertyName("table")]
-        public string? TableNamePattern { get; set; }
+        public string TableNamePattern { get; set; }
 
         [JsonPropertyName("tableTypes")]
-        public string? TableTypes { get; set; }
+        public string TableTypes { get; set; }
 
         [JsonPropertyName("column")]
         public string? ColumnNamePattern { get; set; }

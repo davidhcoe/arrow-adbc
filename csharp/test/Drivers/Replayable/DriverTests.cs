@@ -184,7 +184,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
             string columnName = null;
             GetObjectsDepth depth = AdbcConnection.GetObjectsDepth.All;
 
-            List<string> tableTypes = new List<string> { "BASE TABLE", "VIEW" };
+            List<string> tableTypes = new List<string> { "BASE TABLE", "VIEW", "CLONE" };
 
             if (replayMode == ReplayMode.Replay)
             {
@@ -255,12 +255,12 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         {
 
            return replayCache.ReplayableConnectionGetObjects.Where(x =>
-                           x.CatalogPattern != null && x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.DbSchemaPattern != null && x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.TableNamePattern != null && x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.ColumnNamePattern != null && x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
+                           x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                           (x.ColumnNamePattern == null || x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase)) &&
                            x.Depth == depth &&
-                           x.TableTypes != null && x.TableTypes.Equals(string.Join("-",tableTypes), StringComparison.OrdinalIgnoreCase)
+                           x.TableTypes.Equals(string.Join("-",tableTypes), StringComparison.OrdinalIgnoreCase)
                ).ToList();
         }
 

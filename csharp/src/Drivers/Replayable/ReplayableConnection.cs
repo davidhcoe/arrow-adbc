@@ -335,12 +335,12 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         {
             ReplayableConnectionGetObjects? replayedConnectionGetObjects =
                    this.replayCache.ReplayableConnectionGetObjects.FirstOrDefault(x =>
-                           x.CatalogPattern != null && x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.DbSchemaPattern != null && x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.TableNamePattern != null && x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.ColumnNamePattern != null && x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.Depth == depth &&
-                           x.TableTypes != null && x.TableTypes.Equals(GetValue(tableTypes), StringComparison.OrdinalIgnoreCase)
+                     x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
+                     x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
+                     x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                     (x.ColumnNamePattern == null || x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase)) &&
+                     x.Depth == depth &&
+                     x.TableTypes.Equals(GetValue(tableTypes), StringComparison.OrdinalIgnoreCase)
                );
 
             return replayedConnectionGetObjects;
