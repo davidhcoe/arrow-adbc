@@ -10,7 +10,6 @@ using System.Text;
 using System.Threading;
 using Apache.Arrow;
 using Apache.Arrow.Adbc.Drivers.Apache;
-using Apache.Arrow.Adbc.Drivers.Apache.Thrift;
 using Thrift.Protocol;
 using Thrift.Protocol.Entities;
 using Thrift.Protocol.Utilities;

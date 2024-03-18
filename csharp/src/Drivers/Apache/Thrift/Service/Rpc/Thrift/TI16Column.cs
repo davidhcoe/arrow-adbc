@@ -10,7 +10,6 @@ using System.Text;
 using System.Threading;
 using Apache.Arrow;
 using Apache.Arrow.Adbc.Drivers.Apache;
-using Apache.Arrow.Adbc.Drivers.Apache.Thrift;
 using Thrift.Protocol;
 using Thrift.Protocol.Entities;
 using Thrift.Protocol.Utilities;
@@ -84,8 +83,7 @@ namespace Apache.Hive.Service.Rpc.Thrift
                   await transport.ReadExactlyAsync(memory, cancellationToken);
                   for (int _i152 = 0; _i152 < length; ++_i152)
                   {
-                    //typedMemory.Span[_i152] = BinaryPrimitives.ReverseEndianness(typedMemory.Span[_i152]);
-                    StreamExtensions.ReverseEndiannessInt16(memory.Span, _i152 * 2);
+                    typedMemory.Span[_i152] = BinaryPrimitives.ReverseEndianness(typedMemory.Span[_i152]);
                   }
                   await iprot.ReadListEndAsync(cancellationToken);
                 }

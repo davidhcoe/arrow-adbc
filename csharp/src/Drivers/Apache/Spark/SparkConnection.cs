@@ -17,6 +17,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -31,9 +32,6 @@ using Apache.Hive.Service.Rpc.Thrift;
 using Thrift;
 using Thrift.Protocol;
 using Thrift.Transport.Client;
-
-using Apache.Arrow.Adbc.Drivers.Apache.Thrift;
-using System.Diagnostics;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
@@ -72,21 +70,9 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 
         protected override TProtocol CreateProtocol()
         {
-            Trace.TraceError($"create protocol with {properties.Count} properties.");
-
-            foreach(var property in properties.Keys)
-            {
-                Trace.TraceError($"key = {property} value = {properties[property]}");
-            }
-
-            string hostName = properties["hostname"];
-            string path = properties["path"];
-            string token;
-
-            if (properties.ContainsKey("token"))
-                token = properties["token"];
-            else
-                token = properties["password"];
+            string hostName = properties["HostName"];
+            string path = properties["Path"];
+            string token = properties["Token"];
 
             string uri = "https://" + hostName + "/" + path;
 
@@ -123,7 +109,6 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 
         public override void Dispose()
         {
-            /*
             if (this.client != null)
             {
                 TCloseSessionReq r6 = new TCloseSessionReq(this.sessionHandle);
@@ -135,7 +120,6 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                 this.transport = null;
                 this.client = null;
             }
-            */
         }
 
         public override IArrowArrayStream GetInfo(List<AdbcInfoCode> codes)
@@ -315,8 +299,6 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 
         public override IArrowArrayStream GetObjects(GetObjectsDepth depth, string catalogPattern, string dbSchemaPattern, string tableNamePattern, List<string> tableTypes, string columnNamePattern)
         {
-            Trace.TraceError($"getting objects with depth={depth.ToString()}, catalog = {catalogPattern}, dbschema = {dbSchemaPattern}, tablename = {tableNamePattern}");
-
             Dictionary<string, Dictionary<string, Dictionary<string, TableInfoPair>>> catalogMap = new Dictionary<string, Dictionary<string, Dictionary<string, TableInfoPair>>>();
             if (depth == GetObjectsDepth.All || depth >= GetObjectsDepth.Catalogs)
             {
