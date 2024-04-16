@@ -93,4 +93,3 @@ The following table depicts how the Spark ADBC driver converts a Spark type to a
 1. API `Connection.GetTableSchema` does not return correct precision and scale for `NUMERIC`/`DECIMAL` types.
 1. When a `NULL` value is returned for a `BINARY` type it is instead being returned as an empty array instead of the expected `null`.
 1. Result set metadata does not provide information about the nullability of each column. They are marked as `nullable`    by default, which may not be accurate.
-
