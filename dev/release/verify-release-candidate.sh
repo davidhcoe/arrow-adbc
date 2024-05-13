@@ -23,7 +23,7 @@
 # - Maven >= 3.3.9
 # - JDK >=7
 # - gcc >= 4.8
-# - Go >= 1.20
+# - Go >= 1.21
 # - Docker
 #
 # To reuse build artifacts between runs set ARROW_TMPDIR environment variable to
@@ -168,8 +168,7 @@ test_apt() {
   if [ "${TEST_STAGING:-0}" -gt 0 ]; then
     verify_type=staging-${verify_type}
   fi
-  for target in "debian:bullseye" \
-                "debian:bookworm" \
+  for target in "debian:bookworm" \
                 "ubuntu:jammy"; do \
     show_info "Verifying ${target}..."
     if ! docker run \
@@ -254,7 +253,7 @@ install_go() {
     return 0
   fi
 
-  local version=1.19.13
+  local version=1.21.8
   show_info "Installing go version ${version}..."
 
   local arch="$(uname -m)"
@@ -271,7 +270,7 @@ install_go() {
   fi
 
   local archive="go${version}.${os}-${arch}.tar.gz"
-  curl -sLO https://dl.google.com/go/$archive
+  curl -sLO https://go.dev/dl/$archive
 
   local prefix=${ARROW_TMPDIR}/go
   mkdir -p $prefix
@@ -413,7 +412,7 @@ test_cpp() {
   maybe_setup_conda \
     --file ci/conda_env_cpp.txt \
     compilers \
-    go=1.20 || exit 1
+    go=1.21 || exit 1
 
   if [ "${USE_CONDA}" -gt 0 ]; then
     export CMAKE_PREFIX_PATH="${CONDA_BACKUP_CMAKE_PREFIX_PATH}:${CMAKE_PREFIX_PATH}"
@@ -445,7 +444,7 @@ test_cpp() {
 test_java() {
   show_header "Build and test Java libraries"
 
-  # Build and test Java (Requires newer Maven -- I used 3.3.9)
+  # Build and test Java (Requires Maven >= 3.6.3)
   maybe_setup_conda maven || exit 1
 
   "${ADBC_DIR}/ci/scripts/java_build.sh" "${ADBC_SOURCE_DIR}" "${ARROW_TMPDIR}/java"
@@ -456,7 +455,7 @@ test_python() {
   show_header "Build and test Python libraries"
 
   # Build and test Python
-  maybe_setup_virtualenv cython duckdb pandas protobuf pyarrow pytest setuptools_scm setuptools || exit 1
+  maybe_setup_virtualenv cython duckdb pandas protobuf pyarrow pytest setuptools_scm setuptools importlib_resources || exit 1
   maybe_setup_conda --file "${ADBC_DIR}/ci/conda_env_python.txt" || exit 1
 
   if [ "${USE_CONDA}" -gt 0 ]; then
@@ -564,7 +563,7 @@ test_go() {
   # apache/arrow-adbc#517: `go build` calls git. Don't assume system
   # has git; even if it's there, go_build.sh sets DYLD_LIBRARY_PATH
   # which can interfere with system git.
-  maybe_setup_conda compilers git go=1.20 || exit 1
+  maybe_setup_conda compilers git go=1.21 || exit 1
 
   if [ "${USE_CONDA}" -gt 0 ]; then
     # The CMake setup forces RPATH to be the Conda prefix
@@ -615,6 +614,15 @@ ensure_source_directory() {
   if [ ! -d "${ARROW_SOURCE_DIR}" ]; then
     git clone --depth=1 https://github.com/$ARROW_REPOSITORY $ARROW_SOURCE_DIR
   fi
+
+  source "${ADBC_SOURCE_DIR}/dev/release/versions.env"
+  echo "Versions:"
+  echo "Release: ${RELEASE} (requested: ${VERSION})"
+  echo "C#: ${VERSION_CSHARP}"
+  echo "Java: ${VERSION_JAVA}"
+  echo "C/C++/GLib/Go/Python/Ruby: ${VERSION_NATIVE}"
+  echo "R: ${VERSION_R}"
+  echo "Rust: ${VERSION_RUST}"
 }
 
 test_source_distribution() {
@@ -702,20 +710,21 @@ test_linux_wheels() {
     CONDA_ENV=wheel-${pyver}-${arch} PYTHON_VERSION=${pyver} maybe_setup_conda || exit 1
     VENV_ENV=wheel-${pyver}-${arch} PYTHON_VERSION=${pyver} maybe_setup_virtualenv || continue
     pip install --force-reinstall \
-        adbc_*-${TEST_PYARROW_VERSION:-${VERSION}}-cp${pyver/.}-cp${python/.}-manylinux*${arch}*.whl \
-        adbc_*-${TEST_PYARROW_VERSION:-${VERSION}}-py3-none-manylinux*${arch}*.whl
+        adbc_*-${VERSION_NATIVE}-cp${pyver/.}-cp${python/.}-manylinux*${arch}*.whl \
+        adbc_*-${VERSION_NATIVE}-py3-none-manylinux*${arch}*.whl
     ${ADBC_DIR}/ci/scripts/python_wheel_unix_test.sh ${ADBC_SOURCE_DIR}
   done
 }
 
 test_macos_wheels() {
-  local python_versions="3.9 3.10 3.11"
   # apple silicon processor
   if [ "$(uname -m)" = "arm64" ]; then
     local platform_tags="arm64"
   else
     local platform_tags="x86_64"
   fi
+
+  local python_versions="${TEST_PYTHON_VERSIONS:-3.9 3.10 3.11}"
 
   # verify arch-native wheels inside an arch-native conda environment
   for python in ${python_versions}; do
@@ -727,8 +736,8 @@ test_macos_wheels() {
       VENV_ENV=wheel-${pyver}-${platform} PYTHON_VERSION=${pyver} maybe_setup_virtualenv || continue
 
       pip install --force-reinstall \
-          adbc_*-${TEST_PYARROW_VERSION:-${VERSION}}-cp${pyver/.}-cp${python/.}-macosx_*_${platform}.whl \
-          adbc_*-${TEST_PYARROW_VERSION:-${VERSION}}-py3-none-macosx_*_${platform}.whl
+          adbc_*-${VERSION_NATIVE}-cp${pyver/.}-cp${python/.}-macosx_*_${platform}.whl \
+          adbc_*-${VERSION_NATIVE}-py3-none-macosx_*_${platform}.whl
       ${ADBC_DIR}/ci/scripts/python_wheel_unix_test.sh ${ADBC_SOURCE_DIR}
     done
   done
@@ -766,7 +775,7 @@ test_jars() {
   local -r components=(".jar" "-javadoc.jar" "-sources.jar")
   for package in "${packages[@]}"; do
       for component in "${components[@]}"; do
-          local filename="${BINARY_DIR}/${package}-${VERSION}${component}"
+          local filename="${BINARY_DIR}/${package}-${VERSION_JAVA}${component}"
           if [[ ! -f "${filename}" ]];  then
              echo "ERROR: missing artifact ${filename}"
              return 1

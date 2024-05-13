@@ -2062,6 +2062,41 @@ void StatementTest::TestSqlPrepareErrorParamCountMismatch() {
       ::testing::Not(IsOkStatus(&error)));
 }
 
+void StatementTest::TestSqlQueryEmpty() {
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  ASSERT_THAT(quirks()->DropTable(&connection, "QUERYEMPTY", &error), IsOkStatus(&error));
+  ASSERT_THAT(
+      AdbcStatementSetSqlQuery(&statement, "CREATE TABLE QUERYEMPTY (FOO INT)", &error),
+      IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  ASSERT_THAT(
+      AdbcStatementSetSqlQuery(&statement, "SELECT * FROM QUERYEMPTY WHERE 1=0", &error),
+      IsOkStatus(&error));
+  {
+    StreamReader reader;
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(reader.rows_affected,
+                ::testing::AnyOf(::testing::Eq(0), ::testing::Eq(-1)));
+
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+    ASSERT_EQ(1, reader.schema->n_children);
+
+    while (true) {
+      ASSERT_NO_FATAL_FAILURE(reader.Next());
+      if (!reader.array->release) {
+        break;
+      }
+      ASSERT_EQ(0, reader.array->length);
+    }
+  }
+  ASSERT_THAT(AdbcStatementRelease(&statement, &error), IsOkStatus(&error));
+}
+
 void StatementTest::TestSqlQueryInts() {
   ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
   ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, "SELECT 42", &error),
@@ -2591,10 +2626,18 @@ void StatementTest::TestConcurrentStatements() {
   ASSERT_NO_FATAL_FAILURE(reader1.GetSchema());
 }
 
+struct ADBC_EXPORT AdbcError100 {
+  char* message;
+  int32_t vendor_code;
+  char sqlstate[5];
+  void (*release)(struct AdbcError100* error);
+};
+
 // Test that an ADBC 1.0.0-sized error still works
 void StatementTest::TestErrorCompatibility() {
+  static_assert(sizeof(AdbcError100) == ADBC_ERROR_1_0_0_SIZE, "Wrong size");
   // XXX: sketchy cast
-  auto* error = static_cast<struct AdbcError*>(malloc(ADBC_ERROR_1_0_0_SIZE));
+  auto* error = reinterpret_cast<struct AdbcError*>(malloc(ADBC_ERROR_1_0_0_SIZE));
   std::memset(error, 0, ADBC_ERROR_1_0_0_SIZE);
 
   ASSERT_THAT(AdbcStatementNew(&connection, &statement, error), IsOkStatus(error));
@@ -2605,7 +2648,8 @@ void StatementTest::TestErrorCompatibility() {
   ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
                                         &reader.rows_affected, error),
               ::testing::Not(IsOkStatus(error)));
-  error->release(error);
+  auto* old_error = reinterpret_cast<AdbcError100*>(error);
+  old_error->release(old_error);
   free(error);
 }
 

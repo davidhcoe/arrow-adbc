@@ -29,7 +29,7 @@
     <Product>Apache Arrow ADBC library</Product>
     <Copyright>Copyright 2022-2023 The Apache Software Foundation</Copyright>
     <Company>The Apache Software Foundation</Company>
-    <Version>0.5.0</Version>
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -37,6 +37,10 @@
     <LangVersion>latest</LangVersion>
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>$(CSharpDir)ApacheArrow.snk</AssemblyOriginatorKeyFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</IsWindows>
   </PropertyGroup>
 
   <!-- NuGet properties -->

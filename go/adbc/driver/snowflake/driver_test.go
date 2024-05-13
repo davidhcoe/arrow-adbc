@@ -38,10 +38,10 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	driver "github.com/apache/arrow-adbc/go/adbc/driver/snowflake"
 	"github.com/apache/arrow-adbc/go/adbc/validation"
-	"github.com/apache/arrow/go/v16/arrow"
-	"github.com/apache/arrow/go/v16/arrow/array"
-	"github.com/apache/arrow/go/v16/arrow/decimal128"
-	"github.com/apache/arrow/go/v16/arrow/memory"
+	"github.com/apache/arrow/go/v17/arrow"
+	"github.com/apache/arrow/go/v17/arrow/array"
+	"github.com/apache/arrow/go/v17/arrow/decimal128"
+	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/google/uuid"
 	"github.com/snowflakedb/gosnowflake"
 	"github.com/stretchr/testify/require"
@@ -140,10 +140,14 @@ func getArr(arr arrow.Array) interface{} {
 	}
 }
 
+func quoteTblName(name string) string {
+	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
+}
+
 func (s *SnowflakeQuirks) CreateSampleTable(tableName string, r arrow.Record) error {
 	var b strings.Builder
 	b.WriteString("CREATE OR REPLACE TABLE ")
-	b.WriteString(strconv.Quote(tableName))
+	b.WriteString(quoteTblName(tableName))
 	b.WriteString(" (")
 
 	for i := 0; i < int(r.NumCols()); i++ {
@@ -164,7 +168,7 @@ func (s *SnowflakeQuirks) CreateSampleTable(tableName string, r arrow.Record) er
 		return err
 	}
 
-	insertQuery := "INSERT INTO " + strconv.Quote(tableName) + " VALUES ("
+	insertQuery := "INSERT INTO " + quoteTblName(tableName) + " VALUES ("
 	bindings := strings.Repeat("?,", int(r.NumCols()))
 	insertQuery += bindings[:len(bindings)-1] + ")"
 
@@ -184,7 +188,7 @@ func (s *SnowflakeQuirks) DropTable(cnxn adbc.Connection, tblname string) error 
 	}
 	defer stmt.Close()
 
-	if err = stmt.SetSqlQuery(`DROP TABLE IF EXISTS ` + strconv.Quote(tblname)); err != nil {
+	if err = stmt.SetSqlQuery(`DROP TABLE IF EXISTS ` + quoteTblName(tblname)); err != nil {
 		return err
 	}
 
@@ -216,6 +220,10 @@ func (s *SnowflakeQuirks) GetMetadata(code adbc.InfoCode) interface{} {
 	case adbc.InfoDriverVersion:
 		return "(unknown or development build)"
 	case adbc.InfoDriverArrowVersion:
+		return "(unknown or development build)"
+	case adbc.InfoVendorVersion:
+		return "(unknown or development build)"
+	case adbc.InfoVendorArrowVersion:
 		return "(unknown or development build)"
 	case adbc.InfoDriverADBCVersion:
 		return adbc.AdbcVersion1_1_0
@@ -1790,6 +1798,39 @@ func (suite *SnowflakeTests) TestDescribeOnly() {
 	suite.Truef(arrow.TypeEqual(&arrow.Decimal128Type{Precision: 6, Scale: 2}, schema.Field(0).Type), "expected decimal(6, 2), got %s", schema.Field(0).Type)
 }
 
+func (suite *SnowflakeTests) TestAdditionalDriverInfo() {
+	rdr, err := suite.cnxn.GetInfo(
+		suite.ctx,
+		[]adbc.InfoCode{
+			adbc.InfoVendorSql,
+			adbc.InfoVendorSubstrait,
+		},
+	)
+	suite.Require().NoError(err)
+
+	var totalRows int64
+	for rdr.Next() {
+		rec := rdr.Record()
+		totalRows += rec.NumRows()
+		code := rec.Column(0).(*array.Uint32)
+		info := rec.Column(1).(*array.DenseUnion)
+
+		for i := 0; i < int(rec.NumRows()); i++ {
+			if code.Value(i) == uint32(adbc.InfoVendorSql) {
+				arr, ok := info.Field(info.ChildID(i)).(*array.Boolean)
+				suite.Require().True(ok)
+				suite.Require().Equal(true, arr.Value(i))
+			}
+			if code.Value(i) == uint32(adbc.InfoVendorSubstrait) {
+				arr, ok := info.Field(info.ChildID(i)).(*array.Boolean)
+				suite.Require().True(ok)
+				suite.Require().Equal(false, arr.Value(i))
+			}
+		}
+	}
+	suite.Require().Equal(int64(2), totalRows)
+}
+
 func TestJwtAuthenticationUnencryptedValue(t *testing.T) {
 	// test doesn't participate in SnowflakeTests because
 	// JWT auth has a different behavior
@@ -1964,4 +2005,48 @@ func (suite *SnowflakeTests) TestJwtPrivateKey() {
 	binKey := writeKey("key.bin", block.Bytes)
 	defer os.Remove(binKey)
 	verifyKey(binKey)
+}
+
+func (suite *SnowflakeTests) TestMetadataOnlyQuery() {
+	// force more than one chunk for `SHOW FUNCTIONS` which will return
+	// JSON data instead of arrow, even though we ask for Arrow
+	suite.Require().NoError(suite.stmt.SetSqlQuery(`ALTER SESSION SET CLIENT_RESULT_CHUNK_SIZE = 50`))
+	_, err := suite.stmt.ExecuteUpdate(suite.ctx)
+	suite.Require().NoError(err)
+
+	// since we lowered the CLIENT_RESULT_CHUNK_SIZE this will return at least
+	// 1 chunk in addition to the first one. Metadata queries will return JSON
+	// no matter what currently.
+	suite.Require().NoError(suite.stmt.SetSqlQuery(`SHOW FUNCTIONS`))
+	rdr, n, err := suite.stmt.ExecuteQuery(suite.ctx)
+	suite.Require().NoError(err)
+	defer rdr.Release()
+
+	recv := int64(0)
+	for rdr.Next() {
+		recv += rdr.Record().NumRows()
+	}
+
+	// verify that we got the exepected number of rows if we sum up
+	// all the rows from each record in the stream.
+	suite.Equal(n, recv)
+}
+
+func (suite *SnowflakeTests) TestEmptyResultSet() {
+	// regression test for apache/arrow-adbc#1804
+	// this would previously crash
+	suite.Require().NoError(suite.stmt.SetSqlQuery(`SELECT 42 WHERE 1=0`))
+	rdr, n, err := suite.stmt.ExecuteQuery(suite.ctx)
+	suite.Require().NoError(err)
+	defer rdr.Release()
+
+	recv := int64(0)
+	for rdr.Next() {
+		recv += rdr.Record().NumRows()
+	}
+
+	// verify that we got the exepected number of rows if we sum up
+	// all the rows from each record in the stream.
+	suite.Equal(n, recv)
+	suite.Equal(recv, int64(0))
 }

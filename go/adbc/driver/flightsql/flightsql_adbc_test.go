@@ -35,6 +35,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -42,12 +43,12 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	driver "github.com/apache/arrow-adbc/go/adbc/driver/flightsql"
 	"github.com/apache/arrow-adbc/go/adbc/validation"
-	"github.com/apache/arrow/go/v16/arrow"
-	"github.com/apache/arrow/go/v16/arrow/array"
-	"github.com/apache/arrow/go/v16/arrow/flight"
-	"github.com/apache/arrow/go/v16/arrow/flight/flightsql"
-	"github.com/apache/arrow/go/v16/arrow/flight/flightsql/example"
-	"github.com/apache/arrow/go/v16/arrow/memory"
+	"github.com/apache/arrow/go/v17/arrow"
+	"github.com/apache/arrow/go/v17/arrow/array"
+	"github.com/apache/arrow/go/v17/arrow/flight"
+	"github.com/apache/arrow/go/v17/arrow/flight/flightsql"
+	"github.com/apache/arrow/go/v17/arrow/flight/flightsql/example"
+	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
@@ -261,7 +262,7 @@ func (s *FlightSQLQuirks) GetMetadata(code adbc.InfoCode) interface{} {
 	case adbc.InfoVendorVersion:
 		return "sqlite 3"
 	case adbc.InfoVendorArrowVersion:
-		return "16.0.0-SNAPSHOT"
+		return "17.0.0-SNAPSHOT"
 	}
 
 	return nil
@@ -1005,6 +1006,12 @@ func (suite *DomainSocketTests) SetupSuite() {
 
 	suite.ctx = context.Background()
 	suite.Driver = driver.NewDriver(suite.alloc)
+
+	if runtime.GOOS == "windows" {
+		// Remove drive letter and reverse slash directions in path
+		listenSocket = strings.ReplaceAll(listenSocket[2:], "\\", "/")
+	}
+
 	suite.DB, err = suite.Driver.NewDatabase(map[string]string{
 		adbc.OptionKeyURI: "grpc+unix://" + listenSocket,
 	})

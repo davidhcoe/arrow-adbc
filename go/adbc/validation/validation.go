@@ -28,9 +28,9 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/utils"
-	"github.com/apache/arrow/go/v16/arrow"
-	"github.com/apache/arrow/go/v16/arrow/array"
-	"github.com/apache/arrow/go/v16/arrow/memory"
+	"github.com/apache/arrow/go/v17/arrow"
+	"github.com/apache/arrow/go/v17/arrow/array"
+	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -329,6 +329,9 @@ func (c *ConnectionTests) TestMetadataGetInfo() {
 				case 0:
 					// String
 					actual = child.(*array.String).Value(offset)
+				case 1:
+					// bool
+					actual = child.(*array.Boolean).Value(offset)
 				case 2:
 					// int64
 					actual = child.(*array.Int64).Value(offset)

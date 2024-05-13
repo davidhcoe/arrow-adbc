@@ -146,7 +146,7 @@ class SnowflakeQuirks : public adbc_validation::DriverQuirks {
   bool supports_metadata_current_catalog() const override { return false; }
   bool supports_metadata_current_db_schema() const override { return false; }
   bool supports_partitioned_data() const override { return false; }
-  bool supports_dynamic_parameter_binding() const override { return false; }
+  bool supports_dynamic_parameter_binding() const override { return true; }
   bool supports_error_on_incompatible_schema() const override { return false; }
   bool ddl_implicit_commit_txn() const override { return true; }
   std::string db_schema() const override { return schema_; }
@@ -226,6 +226,10 @@ class SnowflakeStatementTest : public ::testing::Test,
  public:
   // will need to be updated to SetUpTestSuite when gtest is upgraded
   static void SetUpTestCase() {
+    if (quirks_.skip_) {
+      GTEST_SKIP();
+    }
+
     struct AdbcError error;
     struct AdbcDatabase db;
     struct AdbcConnection connection;
@@ -262,6 +266,10 @@ class SnowflakeStatementTest : public ::testing::Test,
 
   // will need to be updated to TearDownTestSuite when gtest is upgraded
   static void TearDownTestCase() {
+    if (quirks_.skip_) {
+      GTEST_SKIP();
+    }
+
     struct AdbcError error;
     struct AdbcDatabase db;
     struct AdbcConnection connection;
