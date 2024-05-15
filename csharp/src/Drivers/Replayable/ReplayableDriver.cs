@@ -37,9 +37,9 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
         public override AdbcDatabase Open(IReadOnlyDictionary<string, string> parameters)
         {
-            ReplayablePropertySet replayablePropertySet = ReplayableUtils.ParseProperties(parameters);
+            ReplayablePropertySet? replayablePropertySet = ReplayableUtils.ParseProperties(parameters);
 
-            AdbcDatabase database = this.adbcDriver.Open(replayablePropertySet.AdbcDriverProperties);
+            AdbcDatabase database = this.adbcDriver.Open(replayablePropertySet.AdbcDriverProperties!);
             return new ReplayableDatabase(database, parameters);
         }
     }

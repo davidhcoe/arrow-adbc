@@ -32,11 +32,11 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow.Adbc.Drivers.R
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow.Adbc.Tests.Drivers.Replayable", "test\Drivers\Replayable\Apache.Arrow.Adbc.Tests.Drivers.Replayable.csproj", "{35281025-2FE3-4BE0-BB76-600F93386C87}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow", "..\..\..\arrow\csharp\src\Apache.Arrow\Apache.Arrow.csproj", "{A3F627DE-4DAF-4887-A700-C15272AD86EE}"
-EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow.Adbc.Drivers.Apache", "src\Drivers\Apache\Apache.Arrow.Adbc.Drivers.Apache.csproj", "{6C0D8BE1-4A23-4C2F-88B1-D2FBEA0B1903}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow.Adbc.Tests.Drivers.Apache", "test\Drivers\Apache\Apache.Arrow.Adbc.Tests.Drivers.Apache.csproj", "{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow", "..\..\arrow\csharp\src\Apache.Arrow\Apache.Arrow.csproj", "{F1C2F8DB-620B-431F-BD66-17DEC66C882F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -88,10 +88,6 @@ Global
 		{35281025-2FE3-4BE0-BB76-600F93386C87}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{35281025-2FE3-4BE0-BB76-600F93386C87}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{35281025-2FE3-4BE0-BB76-600F93386C87}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A3F627DE-4DAF-4887-A700-C15272AD86EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A3F627DE-4DAF-4887-A700-C15272AD86EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A3F627DE-4DAF-4887-A700-C15272AD86EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A3F627DE-4DAF-4887-A700-C15272AD86EE}.Release|Any CPU.Build.0 = Release|Any CPU
 		{6C0D8BE1-4A23-4C2F-88B1-D2FBEA0B1903}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{6C0D8BE1-4A23-4C2F-88B1-D2FBEA0B1903}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{6C0D8BE1-4A23-4C2F-88B1-D2FBEA0B1903}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -100,6 +96,10 @@ Global
 		{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

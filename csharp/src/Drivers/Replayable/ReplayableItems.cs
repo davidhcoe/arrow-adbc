@@ -56,16 +56,16 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         public GetObjectsDepth Depth { get; set; }
 
         [JsonPropertyName("catalog")]
-        public string CatalogPattern { get; set; }
+        public string? CatalogPattern { get; set; }
 
         [JsonPropertyName("schema")]
-        public string DbSchemaPattern { get; set; }
+        public string? DbSchemaPattern { get; set; }
 
         [JsonPropertyName("table")]
-        public string TableNamePattern { get; set; }
+        public string? TableNamePattern { get; set; }
 
         [JsonPropertyName("tableTypes")]
-        public string TableTypes { get; set; }
+        public string? TableTypes { get; set; }
 
         [JsonPropertyName("column")]
         public string? ColumnNamePattern { get; set; }
@@ -86,13 +86,13 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
     public class ReplayableConnectionGetTableSchema : ReplayableItemWithHistory
     {
         [JsonPropertyName("catalog")]
-        public string Catalog { get; set; }
+        public string? Catalog { get; set; }
 
         [JsonPropertyName("schema")]
-        public string DbSchema { get; set; }
+        public string? DbSchema { get; set; }
 
         [JsonPropertyName("table")]
-        public string TableName { get; set; }
+        public string? TableName { get; set; }
     }
 
     public enum ReplayableQueryResultType

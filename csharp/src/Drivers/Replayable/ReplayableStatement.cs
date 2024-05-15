@@ -15,8 +15,6 @@
 * limitations under the License.
 */
 
-using System.Data.Common;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -42,7 +40,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             this.replayCache = ReplayCache.LoadReplayCache(configuration);
         }
 
-        public override string SqlQuery
+        public override string? SqlQuery
         {
             get => this.replayableStatement.SqlQuery;
             set => this.replayableStatement.SqlQuery = value;
@@ -58,7 +56,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
                 if (replayedQueryResult != null)
                 {
-                    QueryResult replayResult = new QueryResult(replayedQueryResult.RowCount, ReplayableUtils.GetReplayedArrayStream(replayedQueryResult.Location));
+                    QueryResult replayResult = new QueryResult(replayedQueryResult.RowCount, ReplayableUtils.GetReplayedArrayStream(replayedQueryResult!.Location!));
                     return replayResult;
                 }
             }
@@ -69,7 +67,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
                 // write result
                 if (result != null)
                 {
-                    string resultsLocation = ReplayableUtils.SaveArrayStream(this.configuration, result.Stream);
+                    string resultsLocation = ReplayableUtils.SaveArrayStream(this.configuration, result.Stream!);
 
                     // look for existing
                     replayedQueryResult = FindPreviousQueryResult(this.replayableStatement.SqlQuery);
@@ -116,7 +114,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             if (this.replayMode == ReplayMode.Replay)
             {
                 replayedQueryResult = FindPreviousUpdateResult(this.replayableStatement.SqlQuery);
-                UpdateResult ur = new UpdateResult(replayedQueryResult.RowCount);
+                UpdateResult ur = new UpdateResult(replayedQueryResult!.RowCount);
                 return ur;
             }
             else if (this.replayMode == ReplayMode.Record || (replayedQueryResult == null && this.configuration.AutoRecord))
@@ -155,19 +153,19 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
             return new UpdateResult(-1);
         }
 
-        private ReplayableQueryResult? FindPreviousQueryResult(string query)
+        private ReplayableQueryResult? FindPreviousQueryResult(string? query)
         {
-            ReplayableQueryResult replayedResult = this.replayCache.ReplayableQueryResults.FirstOrDefault(x => x.Query == query);
+            ReplayableQueryResult? replayedResult = this.replayCache.ReplayableQueryResults.FirstOrDefault(x => x.Query == query);
             return replayedResult;
         }
 
-        private ReplayableQueryResult? FindPreviousUpdateResult(string query)
+        private ReplayableQueryResult? FindPreviousUpdateResult(string? query)
         {
-            ReplayableQueryResult replayedResult = this.replayCache.ReplayableUpdateResults.FirstOrDefault(x => x.Query == query);
+            ReplayableQueryResult? replayedResult = this.replayCache.ReplayableUpdateResults.FirstOrDefault(x => x.Query == query);
             return replayedResult;
         }
 
-        public override object GetValue(IArrowArray arrowArray, int index)
+        public override object? GetValue(IArrowArray arrowArray, int index)
         {
             // TODO: replayed GetValue
             return this.replayableStatement.GetValue(arrowArray, index);

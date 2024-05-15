@@ -42,7 +42,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
     {
         private BigQueryTestConfiguration _bigQueryTestConfiguration;
         private ReplayableTestConfiguration _replayableTestConfiguration;
-        private string _cacheLocation;
+        private string? _cacheLocation;
 
         public DriverTests()
         {
@@ -162,7 +162,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 
             for (int i = 0; i < infoNameArray.Length; i++)
             {
-                AdbcInfoCode value = (AdbcInfoCode)infoNameArray.GetValue(i);
+                AdbcInfoCode value = (AdbcInfoCode)infoNameArray.GetValue(i)!;
                 DenseUnionArray valueArray = (DenseUnionArray)recordBatch.Column("info_value");
 
                 Assert.Contains(value.ToString(), expectedValues);
@@ -202,7 +202,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
             string catalogName = _bigQueryTestConfiguration.Metadata.Catalog;
             string schemaName = _bigQueryTestConfiguration.Metadata.Schema;
             string tableName = _bigQueryTestConfiguration.Metadata.Table;
-            string columnName = null;
+            string? columnName = null;
             GetObjectsDepth depth = AdbcConnection.GetObjectsDepth.All;
 
             List<string> tableTypes = new List<string> { "BASE TABLE", "VIEW", "CLONE" };
@@ -233,13 +233,13 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
 
             List<AdbcColumn> columns = catalogs
                 .Select(s => s.DbSchemas)
-                .FirstOrDefault()
+                .FirstOrDefault()!
                 .Select(t => t.Tables)
-                .FirstOrDefault()
+                .FirstOrDefault()!
                 .Select(c => c.Columns)
-                .FirstOrDefault();
+                .FirstOrDefault()!;
 
-            Assert.Equal(_bigQueryTestConfiguration.Metadata.ExpectedColumnCount, columns.Count);
+            Assert.Equal(_bigQueryTestConfiguration.Metadata.ExpectedColumnCount, columns!.Count);
 
             ReplayCache cache = ReplayCache.LoadReplayCache(config);
             List<ReplayableConnectionGetObjects> replayableConnectionGetObjects = FindPreviousConnectionGetObjects(cache, depth, catalogName, schemaName, tableName, tableTypes, columnName);
@@ -253,16 +253,16 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
             string dbSchemaPattern,
             string tableNamePattern,
             List<string> tableTypes,
-            string columnNamePattern)
+            string? columnNamePattern)
         {
 
            return replayCache.ReplayableConnectionGetObjects.Where(x =>
-                           x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase) &&
-                           x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase) &&
+                           (x.CatalogPattern == null || x.CatalogPattern.Equals(catalogPattern, StringComparison.OrdinalIgnoreCase)) &&
+                           (x.DbSchemaPattern == null || x.DbSchemaPattern.Equals(dbSchemaPattern, StringComparison.OrdinalIgnoreCase)) &&
+                           (x.TableNamePattern == null || x.TableNamePattern.Equals(tableNamePattern, StringComparison.OrdinalIgnoreCase)) &&
                            (x.ColumnNamePattern == null || x.ColumnNamePattern.Equals(columnNamePattern, StringComparison.OrdinalIgnoreCase)) &&
                            x.Depth == depth &&
-                           x.TableTypes.Equals(string.Join("-",tableTypes), StringComparison.OrdinalIgnoreCase)
+                           x.TableTypes!.Equals(string.Join("-",tableTypes), StringComparison.OrdinalIgnoreCase)
                ).ToList();
         }
 

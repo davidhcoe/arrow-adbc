@@ -40,7 +40,7 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
         /// <summary>
         /// The file location of the cache.
         /// </summary>
-        public string FileLocation { get; set; }
+        public string? FileLocation { get; set; }
 
         /// <summary>
         /// Whether to save previous results or not.
@@ -102,15 +102,15 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
             string json = File.ReadAllText(config.FileLocation);
 
-            ReplayCache cache = JsonSerializer.Deserialize<ReplayCache>(json);
-            cache.configuration = config;
+            ReplayCache? cache = JsonSerializer.Deserialize<ReplayCache>(json);
+            cache!.configuration = config;
             return cache;
         }
 
         public void Save()
         {
             string json = JsonSerializer.Serialize(this);
-            File.WriteAllText(this.configuration.FileLocation, json);
+            File.WriteAllText(this.configuration.FileLocation!, json);
         }
     }
 }

@@ -34,7 +34,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         public ReplayMode ReplayMode { get; set; }
 
         [JsonPropertyName("location")]
-        public string FileLocation { get; set; }
+        public string? FileLocation { get; set; }
 
         [JsonPropertyName("savePreviousResults")]
         public bool SavePreviousResults { get; set; }
