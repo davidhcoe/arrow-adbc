@@ -302,7 +302,8 @@ namespace Apache.Arrow.Adbc.Drivers.Replayable
 
                     ReplayableConnectionGetTableTypes gtt = new ReplayableConnectionGetTableTypes()
                     {
-                        TableTypes = GetValue(tableTypes)
+                        TableTypes = GetValue(tableTypes),
+                        Location = location
                     };
 
                     this.replayCache.ReplayableConnectionGetTableTypes.Add(gtt);

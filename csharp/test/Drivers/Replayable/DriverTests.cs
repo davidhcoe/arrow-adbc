@@ -36,6 +36,9 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
     /// <remarks>
     /// Tests are ordered to ensure data is created for the other
     /// queries to run.
+    ///
+    /// Facts are used instead of theories with input to ensure the order
+    /// is executed correctly.
     /// </remarks>
     [TestCaseOrderer("Apache.Arrow.Adbc.Tests.Xunit.TestOrderer", "Apache.Arrow.Adbc.Tests")]
     public class DriverTests
@@ -62,11 +65,15 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// Validates if the driver can connect to a live server and
         /// parse the results.
         /// </summary>
-        [SkippableTheory, Order(1)]
-        [InlineData(ReplayMode.Record, false)]
-        [InlineData(ReplayMode.Replay, true)]
-        [InlineData(ReplayMode.Record, true)]
-        public void CanExecuteUpdate(ReplayMode replayMode, bool savePreviousResults)
+        [SkippableFact, Order(1)]
+        public void CanExecuteCachedUpdate()
+        {
+            CanExecuteUpdate(ReplayMode.Record, false);
+            CanExecuteUpdate(ReplayMode.Replay, true);
+            CanExecuteUpdate(ReplayMode.Record, true);
+        }
+
+        private void CanExecuteUpdate(ReplayMode replayMode, bool savePreviousResults)
         {
             int previousResults = 0;
 
@@ -126,11 +133,15 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// <summary>
         /// Validates if the driver can call GetInfo.
         /// </summary>
-        [SkippableTheory, Order(2)]
-        [InlineData(ReplayMode.Record, false)]
-        [InlineData(ReplayMode.Replay, true)]
-        [InlineData(ReplayMode.Record, true)]
-        public void CanGetInfo(ReplayMode replayMode, bool savePreviousResults)
+        [SkippableFact, Order(2)]
+        public void CanGetCachedInfo()
+        {
+            CanGetInfo(ReplayMode.Record, false);
+            CanGetInfo(ReplayMode.Replay, true);
+            CanGetInfo(ReplayMode.Record, true);
+        }
+
+        private void CanGetInfo(ReplayMode replayMode, bool savePreviousResults)
         {
             int previousResults = 0;
 
@@ -185,11 +196,15 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// <summary>
         /// Validates if the driver can call GetObjects.
         /// </summary>
-        [SkippableTheory, Order(3)]
-        [InlineData(ReplayMode.Record, false)]
-        [InlineData(ReplayMode.Replay, true)]
-        [InlineData(ReplayMode.Record, true)]
-        public void CanGetObjects(ReplayMode replayMode, bool savePreviousResults)
+        [SkippableFact, Order(3)]
+        public void CanGetCachedObjects()
+        {
+            CanGetObjects(ReplayMode.Record, false);
+            CanGetObjects(ReplayMode.Replay, true);
+            CanGetObjects(ReplayMode.Record, true);
+        }
+
+        private void CanGetObjects(ReplayMode replayMode, bool savePreviousResults)
         {
             int previousResults = 0;
 
@@ -269,11 +284,14 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// <summary>
         /// Validates if the driver can call GetTableSchema.
         /// </summary>
-        [SkippableTheory, Order(4)]
-        [InlineData(ReplayMode.Record, false)]
-        [InlineData(ReplayMode.Replay, true)]
-        [InlineData(ReplayMode.Record, true)]
-        public void CanGetTableSchema(ReplayMode replayMode, bool savePreviousResults)
+        [SkippableFact, Order(4)]
+        private void CanGetCachedTableSchema()
+        {
+            CanGetTableSchema(ReplayMode.Record, false);
+            CanGetTableSchema(ReplayMode.Replay, true);
+            CanGetTableSchema(ReplayMode.Record, true);
+        }
+        private void CanGetTableSchema(ReplayMode replayMode, bool savePreviousResults)
         {
             int previousResults = 0;
             string catalogName = _bigQueryTestConfiguration.Metadata.Catalog;
@@ -326,11 +344,15 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// <summary>
         /// Validates if the driver can call GetTableTypes.
         /// </summary>
-        [SkippableTheory, Order(5)]
-        [InlineData(ReplayMode.Record, false)]
-        [InlineData(ReplayMode.Replay, true)]
-        [InlineData(ReplayMode.Record, true)]
-        public void CanGetTableTypes(ReplayMode replayMode, bool savePreviousResults)
+        [SkippableFact, Order(5)]
+        public void CanGetCachedTableTypes()
+        {
+            CanGetTableTypes(ReplayMode.Record, false);
+            CanGetTableTypes(ReplayMode.Replay, true);
+            CanGetTableTypes(ReplayMode.Record, true);
+        }
+
+        private void CanGetTableTypes(ReplayMode replayMode, bool savePreviousResults)
         {
             int previousResults = 0;
 
@@ -384,11 +406,15 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Replayable
         /// Validates if the driver can connect to a live server and
         /// parse the results.
         /// </summary>
-        [SkippableTheory, Order(6)]
-        [InlineData(ReplayMode.Record, false)]
-        [InlineData(ReplayMode.Replay, true)]
-        [InlineData(ReplayMode.Record, true)]
-        public void CanExecuteQuery(ReplayMode replayMode, bool savePreviousResults)
+        [SkippableFact, Order(6)]
+        public void CanExecuteCachedQuery()
+        {
+            CanExecuteQuery(ReplayMode.Record, false);
+            CanExecuteQuery(ReplayMode.Replay, true);
+            CanExecuteQuery(ReplayMode.Record, true);
+        }
+
+        private void CanExecuteQuery(ReplayMode replayMode, bool savePreviousResults)
         {
             int previousResults = 0;
 

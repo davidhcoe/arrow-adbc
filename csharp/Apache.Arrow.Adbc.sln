@@ -36,8 +36,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow.Adbc.Drivers.A
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow.Adbc.Tests.Drivers.Apache", "test\Drivers\Apache\Apache.Arrow.Adbc.Tests.Drivers.Apache.csproj", "{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Apache.Arrow", "..\..\arrow\csharp\src\Apache.Arrow\Apache.Arrow.csproj", "{F1C2F8DB-620B-431F-BD66-17DEC66C882F}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -96,10 +94,6 @@ Global
 		{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{714F0BD2-3A92-4D1A-8FAC-D0C0599BE3E3}.Release|Any CPU.Build.0 = Release|Any CPU
-		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{F1C2F8DB-620B-431F-BD66-17DEC66C882F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
