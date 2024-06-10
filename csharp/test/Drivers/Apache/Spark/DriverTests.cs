@@ -24,6 +24,7 @@ using Apache.Arrow.Adbc.Tests.Xunit;
 using Apache.Arrow.Ipc;
 using Xunit;
 using Xunit.Abstractions;
+using ColumnTypeId = Apache.Arrow.Adbc.Drivers.Apache.Spark.SparkConnection.ColumnTypeId;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 {
@@ -37,7 +38,39 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
     [TestCaseOrderer("Apache.Arrow.Adbc.Tests.Xunit.TestOrderer", "Apache.Arrow.Adbc.Tests")]
     public class DriverTests : SparkTestBase
     {
-        private static List<string> DefaultTableTypes => new() { "BASE TABLE", "VIEW" };
+        /// <summary>
+        /// Supported Spark data types as a subset of <see cref="SparkConnection.ColumnTypeId"/>
+        /// </summary>
+        private enum SupportedSparkDataType : short
+        {
+            ARRAY = ColumnTypeId.ARRAY,
+            BIGINT = ColumnTypeId.BIGINT,
+            BINARY = ColumnTypeId.BINARY,
+            BOOLEAN = ColumnTypeId.BOOLEAN,
+            CHAR = ColumnTypeId.CHAR,
+            DATE = ColumnTypeId.DATE,
+            DECIMAL = ColumnTypeId.DECIMAL,
+            DOUBLE = ColumnTypeId.DOUBLE,
+            FLOAT = ColumnTypeId.FLOAT,
+            INTEGER = ColumnTypeId.INTEGER,
+            JAVA_OBJECT = ColumnTypeId.JAVA_OBJECT,
+            LONGNVARCHAR = ColumnTypeId.LONGNVARCHAR,
+            LONGVARBINARY = ColumnTypeId.LONGVARBINARY,
+            LONGVARCHAR = ColumnTypeId.LONGVARCHAR,
+            NCHAR = ColumnTypeId.NCHAR,
+            NULL = ColumnTypeId.NULL,
+            NUMERIC = ColumnTypeId.NUMERIC,
+            NVARCHAR = ColumnTypeId.NVARCHAR,
+            REAL = ColumnTypeId.REAL,
+            SMALLINT = ColumnTypeId.SMALLINT,
+            STRUCT = ColumnTypeId.STRUCT,
+            TIMESTAMP = ColumnTypeId.TIMESTAMP,
+            TINYINT = ColumnTypeId.TINYINT,
+            VARBINARY = ColumnTypeId.VARBINARY,
+            VARCHAR = ColumnTypeId.VARCHAR,
+        }
+
+        private static List<string> DefaultTableTypes => new() { "TABLE", "VIEW" };
 
         public DriverTests(ITestOutputHelper? outputHelper) : base(outputHelper)
         {
@@ -84,12 +117,30 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
         {
             AdbcConnection adbcConnection = NewConnection();
 
-            using IArrowArrayStream stream = adbcConnection.GetInfo(new List<AdbcInfoCode>() { AdbcInfoCode.DriverName, AdbcInfoCode.DriverVersion, AdbcInfoCode.VendorName });
+            // Test the supported info codes
+            List<AdbcInfoCode> handledCodes = new List<AdbcInfoCode>()
+            {
+                AdbcInfoCode.DriverName,
+                AdbcInfoCode.DriverVersion,
+                AdbcInfoCode.VendorName,
+                AdbcInfoCode.DriverArrowVersion,
+                AdbcInfoCode.VendorVersion,
+                AdbcInfoCode.VendorSql
+            };
+            using IArrowArrayStream stream = adbcConnection.GetInfo(handledCodes);
 
             RecordBatch recordBatch = await stream.ReadNextRecordBatchAsync();
             UInt32Array infoNameArray = (UInt32Array)recordBatch.Column("info_name");
 
-            List<string> expectedValues = new List<string>() { "DriverName", "DriverVersion", "VendorName" };
+            List<string> expectedValues = new List<string>()
+            {
+                "DriverName",
+                "DriverVersion",
+                "VendorName",
+                "DriverArrowVersion",
+                "VendorVersion",
+                "VendorSql"
+            };
 
             for (int i = 0; i < infoNameArray.Length; i++)
             {
@@ -98,8 +149,59 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 
                 Assert.Contains(value.ToString(), expectedValues);
 
-                StringArray stringArray = (StringArray)valueArray.Fields[0];
-                Console.WriteLine($"{value}={stringArray.GetString(i)}");
+                switch (value)
+                {
+                    case AdbcInfoCode.VendorSql:
+                        // TODO: How does external developer know the second field is the boolean field?
+                        BooleanArray booleanArray = (BooleanArray)valueArray.Fields[1];
+                        bool? boolValue = booleanArray.GetValue(i);
+                        OutputHelper?.WriteLine($"{value}={boolValue}");
+                        Assert.True(boolValue);
+                        break;
+                    default:
+                        StringArray stringArray = (StringArray)valueArray.Fields[0];
+                        string stringValue = stringArray.GetString(i);
+                        OutputHelper?.WriteLine($"{value}={stringValue}");
+                        Assert.NotNull(stringValue);
+                        break;
+                }
+            }
+
+            // Test the unhandled info codes.
+            List<AdbcInfoCode> unhandledCodes = new List<AdbcInfoCode>()
+            {
+                AdbcInfoCode.VendorArrowVersion,
+                AdbcInfoCode.VendorSubstrait,
+                AdbcInfoCode.VendorSubstraitMaxVersion
+            };
+            using IArrowArrayStream stream2 = adbcConnection.GetInfo(unhandledCodes);
+
+            recordBatch = await stream2.ReadNextRecordBatchAsync();
+            infoNameArray = (UInt32Array)recordBatch.Column("info_name");
+
+            List<string> unexpectedValues = new List<string>()
+            {
+                "VendorArrowVersion",
+                "VendorSubstrait",
+                "VendorSubstraitMaxVersion"
+            };
+            for (int i = 0; i < infoNameArray.Length; i++)
+            {
+                AdbcInfoCode? value = (AdbcInfoCode?)infoNameArray.GetValue(i);
+                DenseUnionArray valueArray = (DenseUnionArray)recordBatch.Column("info_value");
+
+                Assert.Contains(value.ToString(), unexpectedValues);
+                switch (value)
+                {
+                    case AdbcInfoCode.VendorSql:
+                        BooleanArray booleanArray = (BooleanArray)valueArray.Fields[1];
+                        Assert.Null(booleanArray.GetValue(i));
+                        break;
+                    default:
+                        StringArray stringArray = (StringArray)valueArray.Fields[0];
+                        Assert.Null(stringArray.GetString(i));
+                        break;
+                }
             }
         }
 
@@ -197,7 +299,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
             AdbcTable? table = tables?.Where((table) => string.Equals(table.Name, tableName)).FirstOrDefault();
             Assert.True(table != null, "table should not be null");
             // TODO: Determine why this is returned blank.
-            //Assert.Equal("BASE TABLE", table.Type);
+            //Assert.Equal("TABLE", table.Type);
         }
 
         /// <summary>
@@ -235,11 +337,65 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 
             Assert.True(table != null, "table should not be null");
             // TODO: Determine why this is returned blank.
-            //Assert.Equal("BASE TABLE", table.Type);
+            //Assert.Equal("TABLE", table.Type);
             List<AdbcColumn>? columns = table.Columns;
 
             Assert.True(columns != null, "Columns cannot be null");
             Assert.Equal(TestConfiguration.Metadata.ExpectedColumnCount, columns.Count);
+
+            for (int i = 0; i < columns.Count; i++)
+            {
+                // Verify column metadata is returned/consistent.
+                AdbcColumn column = columns[i];
+                Assert.Equal(i + 1, column.OrdinalPosition);
+                Assert.False(string.IsNullOrEmpty(column.Name));
+                Assert.False(string.IsNullOrEmpty(column.XdbcTypeName));
+
+                var supportedTypes = Enum.GetValues(typeof(SupportedSparkDataType)).Cast<SupportedSparkDataType>();
+                Assert.Contains((SupportedSparkDataType)column.XdbcSqlDataType!, supportedTypes);
+                Assert.Equal(column.XdbcDataType, column.XdbcSqlDataType);
+
+                Assert.NotNull(column.XdbcDataType);
+                Assert.Contains((SupportedSparkDataType)column.XdbcDataType!, supportedTypes);
+
+                HashSet<short> typesHaveColumnSize = new()
+                {
+                    (short)SupportedSparkDataType.DECIMAL,
+                    (short)SupportedSparkDataType.NUMERIC,
+                    (short)SupportedSparkDataType.CHAR,
+                    (short)SupportedSparkDataType.VARCHAR,
+                };
+                HashSet<short> typesHaveDecimalDigits = new()
+                {
+                    (short)SupportedSparkDataType.DECIMAL,
+                    (short)SupportedSparkDataType.NUMERIC,
+                };
+
+                bool typeHasColumnSize = typesHaveColumnSize.Contains(column.XdbcDataType.Value);
+                Assert.Equal(column.XdbcColumnSize.HasValue, typeHasColumnSize);
+
+                bool typeHasDecimalDigits = typesHaveDecimalDigits.Contains(column.XdbcDataType.Value);
+                Assert.Equal(column.XdbcDecimalDigits.HasValue, typeHasDecimalDigits);
+
+                Assert.False(string.IsNullOrEmpty(column.Remarks));
+
+                Assert.NotNull(column.XdbcColumnDef);
+
+                Assert.NotNull(column.XdbcNullable);
+                Assert.Contains(new short[] { 1, 0 }, i => i == column.XdbcNullable);
+
+                Assert.NotNull(column.XdbcIsNullable);
+                Assert.Contains(new string[] { "YES", "NO" }, i => i.Equals(column.XdbcIsNullable));
+
+                Assert.NotNull(column.XdbcIsAutoIncrement);
+
+                Assert.Null(column.XdbcCharOctetLength);
+                Assert.Null(column.XdbcDatetimeSub);
+                Assert.Null(column.XdbcNumPrecRadix);
+                Assert.Null(column.XdbcScopeCatalog);
+                Assert.Null(column.XdbcScopeSchema);
+                Assert.Null(column.XdbcScopeTable);
+            }
         }
 
         /// <summary>
@@ -321,7 +477,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 
             List<string> known_types = new List<string>
             {
-                "BASE TABLE", "VIEW"
+                "TABLE", "VIEW"
             };
 
             int results = 0;
