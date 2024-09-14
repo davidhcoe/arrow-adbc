@@ -190,6 +190,12 @@ class Statement : public BaseStatement<Derived> {
     return ObjectBase::Init(parent, error);
   }
 
+  AdbcStatusCode NextResult(ArrowSchema* schema, ArrowArrayStream* stream,
+                            AdbcPartitions* partitions, int64_t* rows_affected,
+                            AdbcError*) {
+    return ADBC_STATUS_NOT_IMPLEMENTED;
+  }
+  
   AdbcStatusCode Prepare(AdbcError* error) {
     RAISE_STATUS(error, std::visit(
                             [&](auto&& state) -> Status {

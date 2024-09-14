@@ -705,5 +705,17 @@ namespace Apache.Arrow.Adbc.C
 #endif
 
         #endregion
+
+        #region ADBC API Revision 1.0.0
+
+        /// <summary>
+        /// Set an integer option on a statement.
+        /// </summary>
+#if NET5_0_OR_GREATER
+        internal delegate* unmanaged<CAdbcStatement*, CArrowSchema*, CArrowArrayStream*, CAdbcPartitions*, long*, CAdbcError*, AdbcStatusCode> StatementNextResult;
+#else
+        internal IntPtr StatementNextResult;
+#endif
+        #endregion
     }
 }

@@ -408,6 +408,14 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 /// \since ADBC API revision 1.1.0
 #define ADBC_VERSION_1_1_0 1001000
 
+/// \brief ADBC revision 1.2.0.
+///
+/// When passed to an AdbcDriverInitFunc(), the driver parameter must
+/// point to an AdbcDriver.
+///
+/// \since ADBC API revision 1.2.0
+#define ADBC_VERSION_1_2_0 1002000
+
 /// \brief Canonical option value for enabling an option.
 ///
 /// For use as the value in SetOption calls.
@@ -1007,17 +1015,18 @@ struct ADBC_EXPORT AdbcDriver {
   /// the AdbcDriverInitFunc is greater than or equal to
   /// ADBC_VERSION_1_1_0.
   ///
-  /// For a 1.0.0 driver being loaded by a 1.1.0 driver manager: the
-  /// 1.1.0 manager will allocate the new, expanded AdbcDriver struct
-  /// and attempt to have the driver initialize it with
-  /// ADBC_VERSION_1_1_0.  This must return an error, after which the
-  /// driver will try again with ADBC_VERSION_1_0_0.  The driver must
-  /// not access the new fields, which will carry undefined values.
-  ///
-  /// For a 1.1.0 driver being loaded by a 1.0.0 driver manager: the
-  /// 1.0.0 manager will allocate the old AdbcDriver struct and
-  /// attempt to have the driver initialize it with
+  /// When a driver implementing an older spec is loaded by a newer
+  /// driver manager, the newer manager will allocate the new, expanded
+  /// AdbcDriver struct and attempt to have the driver initialize it with
+  /// the newer version.  This must return an error, after which the driver
+  /// will try again with successively older versions all the way back to
   /// ADBC_VERSION_1_0_0.  The driver must not access the new fields,
+  /// which will carry undefined values.
+  ///
+  /// When a driver implementing a newer spec is loaded by an older
+  /// driver manager, the older manager will allocate the old AdbcDriver
+  /// struct and attempt to have the driver initialize it with the
+  /// older version.  The driver must not access the new fields,
   /// and should initialize the old fields.
   ///
   /// @{
@@ -1083,6 +1092,20 @@ struct ADBC_EXPORT AdbcDriver {
                                           struct AdbcError*);
 
   /// @}
+  /// \defgroup adbc-1.2.0 ADBC API Revision 1.2.0
+  ///
+  /// Functions added in ADBC 1.2.0.  For backwards compatibility,
+  /// these members must not be accessed unless the version passed to
+  /// the AdbcDriverInitFunc is greater than or equal to
+  /// ADBC_VERSION_1_2_0.
+  ///
+  /// @{
+
+  AdbcStatusCode (*StatementNextResult)(struct AdbcStatement*, struct ArrowSchema*,
+                                       struct ArrowArrayStream*, struct AdbcPartitions*,
+                                       int64_t*, struct AdbcError*);
+
+  /// @}
 };
 
 /// \brief The size of the AdbcDriver structure in ADBC 1.0.0.
@@ -1094,12 +1117,20 @@ struct ADBC_EXPORT AdbcDriver {
 #define ADBC_DRIVER_1_0_0_SIZE (offsetof(struct AdbcDriver, ErrorGetDetailCount))
 
 /// \brief The size of the AdbcDriver structure in ADBC 1.1.0.
-/// Drivers written for ADBC 1.1.0 and later should never touch more
+/// Drivers written for ADBC 1.2.0 and later should never touch more
 /// than this portion of an AdbcDriver struct when given
 /// ADBC_VERSION_1_1_0.
 ///
 /// \since ADBC API revision 1.1.0
-#define ADBC_DRIVER_1_1_0_SIZE (sizeof(struct AdbcDriver))
+#define ADBC_DRIVER_1_1_0_SIZE (offsetof(struct AdbcDriver, StatementNextResult))
+
+/// \brief The size of the AdbcDriver structure in ADBC 1.2.0.
+/// Drivers written for ADBC 1.3.0 and later should never touch more
+/// than this portion of an AdbcDriver struct when given
+/// ADBC_VERSION_1_2_0.
+///
+/// \since ADBC API revision 1.2.0
+#define ADBC_DRIVER_1_2_0_SIZE (sizeof(struct AdbcDriver))
 
 /// @}
 
@@ -2235,6 +2266,55 @@ ADBC_EXPORT
 AdbcStatusCode AdbcStatementGetParameterSchema(struct AdbcStatement* statement,
                                                struct ArrowSchema* schema,
                                                struct AdbcError* error);
+
+/// \brief Move to next result set, if any.
+///
+/// For an execution which returns multiple results, this can be
+/// called once the initial execution is complete to get the second
+/// and subsequent result sets. A driver may support calling
+/// AdbcStatementNextResult while the previous result is still being
+/// consumed. One which does not must return ADBC_STATUS_INVALID_STATE
+/// until that happens. A driver returns ADBC_STATUS_OK to indicate
+/// successful execution of this function whether or not an additional
+/// result set is available.
+///
+/// If the original execution was via AdbcStatementExecuteSchema then
+/// the out, partitions and rows_affected parameters may be passed as
+/// NULL. If passed, their contents are unchanged whether or not an
+/// additional result is available.
+///
+/// Either partitions or out must be NULL to indicate which style of output
+/// is desired by the caller. Supplying non-NULL values to both must result
+/// in ADBC_STATUS_INVALID_ARGUMENT. If the original execution was via
+/// AdbcStatementExecuteQuery and the call to AdbcStatementNextResult has a
+/// non-NULL partitions, or the original was via AdbcStatementExecutePartitions
+/// and this call has a non-NULL out, then the driver may choose to return the
+/// data in a different style than the original result set. If it does not (or
+/// cannot) then it should return ADBC_STATUS_INVALID_ARGUMENT.
+///
+/// The driver indicates that no additional result is available by setting
+/// release on schema and/or out to NULL.
+///
+/// \since ADBC API revision 1.2.0
+///
+/// \param[in] statement The statement for which to fetch a subsequent result.
+/// \param[out] schema An optional location to return the schema of the result.
+///   Either schema or out must be set.
+/// \param[out] out The result set, if desired as a single result stream.
+/// \param[out] partitions The result set, if desired as partitioned data
+/// \param[out] rows_affected The number of rows affected if known, else -1.
+/// \param[out] error An optional location to return an error
+///   message if necessary.
+///
+/// \return ADBC_STATUS_INVALID_STATE if this function is called at
+/// an inappropriate time.
+ADBC_EXPORT
+AdbcStatusCode AdbcStatementNextResult(struct AdbcStatement* statement,
+                                       struct ArrowSchema* schema,
+                                       struct ArrowArrayStream* out,
+                                       struct AdbcPartitions* partitions,
+                                       int64_t* rows_affected,
+                                       struct AdbcError* error);
 
 /// \brief Set a string option on a statement.
 /// \param[in] statement The statement.
