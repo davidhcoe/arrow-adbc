@@ -531,6 +531,7 @@ func (c *connectionImpl) NewStatement() (adbc.Statement, error) {
 		prefetchConcurrency: defaultPrefetchConcurrency,
 		useHighPrecision:    c.useHighPrecision,
 		ingestOptions:       defaultIngestOptions,
+		statementCount:      1,
 	}, nil
 }
 
