@@ -30,10 +30,12 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
@@ -2146,6 +2148,49 @@ func (suite *SnowflakeTests) TestChangeDatabaseAndGetObjects() {
 
 	_, err2 := suite.cnxn.GetObjects(suite.ctx, adbc.ObjectDepthAll, &newCatalog, &cfg.Schema, &getObjectsTable, nil, nil)
 	suite.NoError(err2)
+}
+
+func (suite *SnowflakeTests) TestCompareGetObjectsCalls() {
+	// this test demonstrates comparing GetObjects calls with the original way vs. the query file way
+
+	uri, ok := os.LookupEnv("SNOWFLAKE_URI")
+	if !ok {
+		suite.T().Skip("Cannot find the `SNOWFLAKE_URI` value")
+	}
+
+	//newCatalog, ok := os.LookupEnv("SNOWFLAKE_NEW_CATALOG")
+	catalog := "DEMODB"
+	table := "PRODUCT2"
+
+	cfg, err := gosnowflake.ParseDSN(uri)
+	suite.NoError(err)
+
+	cnxnopt, ok := suite.cnxn.(adbc.PostInitOptions)
+	suite.True(ok)
+	err = cnxnopt.SetOption(adbc.OptionKeyCurrentCatalog, catalog)
+	suite.NoError(err)
+
+	os.Setenv("SNOWFLAKE_GET_OBJECTS_ORIG", "true")
+	start := time.Now()
+	//col := "__GET_OBJECTS_ORIG__"
+	orig, _ := suite.cnxn.GetObjects(suite.ctx, adbc.ObjectDepthAll, &catalog, &cfg.Schema, &table, nil, nil)
+	elapsed := time.Since(start)
+
+	fmt.Println("x GetObjects(Orig) took " + elapsed.String())
+
+	os.Setenv("SNOWFLAKE_GET_OBJECTS_ORIG", "false")
+	start = time.Now()
+	new, _ := suite.cnxn.GetObjects(suite.ctx, adbc.ObjectDepthAll, &catalog, &cfg.Schema, &table, nil, nil)
+	elapsed = time.Since(start)
+
+	fmt.Println("x GetObjects(New) took " + elapsed.String())
+
+	origRec := orig.Record()
+	newRec := new.Record()
+
+	fmt.Println("Are new and old equal? ", reflect.DeepEqual(origRec, newRec))
+
+	fmt.Println("done")
 }
 
 func (suite *SnowflakeTests) TestGetSetClientConfigFile() {
