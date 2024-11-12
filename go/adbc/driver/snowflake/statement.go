@@ -41,6 +41,7 @@ const (
 	OptionStatementIngestTargetFileSize    = "adbc.snowflake.statement.ingest_target_file_size"
 	OptionStatementIngestCompressionCodec  = "adbc.snowflake.statement.ingest_compression_codec" // TODO(GH-1473): Implement option
 	OptionStatementIngestCompressionLevel  = "adbc.snowflake.statement.ingest_compression_level" // TODO(GH-1473): Implement option
+	OptionStatementMultiStatementCount     = "adbc.snowflake.statement.count"
 )
 
 type statement struct {
@@ -49,6 +50,7 @@ type statement struct {
 	queueSize           int
 	prefetchConcurrency int
 	useHighPrecision    bool
+	statementCount      int
 
 	query         string
 	targetTable   string
@@ -97,6 +99,8 @@ func (st *statement) GetOptionInt(key string) (int64, error) {
 	switch key {
 	case OptionStatementQueueSize:
 		return int64(st.queueSize), nil
+	case OptionStatementMultiStatementCount:
+		return int64(st.statementCount), nil
 	}
 	return 0, adbc.Error{
 		Msg:  fmt.Sprintf("[Snowflake] Unknown statement option '%s'", key),
@@ -133,59 +137,20 @@ func (st *statement) SetOption(key string, val string) error {
 			}
 		}
 	case OptionStatementQueueSize:
-		sz, err := strconv.Atoi(val)
-		if err != nil {
-			return adbc.Error{
-				Msg:  fmt.Sprintf("[Snowflake] could not parse '%s' as int for option '%s'", val, key),
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
-		return st.SetOptionInt(key, int64(sz))
 	case OptionStatementPrefetchConcurrency:
-		concurrency, err := strconv.Atoi(val)
-		if err != nil {
-			return adbc.Error{
-				Msg:  fmt.Sprintf("[Snowflake] could not parse '%s' as int for option '%s'", val, key),
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
-		return st.SetOptionInt(key, int64(concurrency))
 	case OptionStatementIngestWriterConcurrency:
-		concurrency, err := strconv.Atoi(val)
-		if err != nil {
-			return adbc.Error{
-				Msg:  fmt.Sprintf("[Snowflake] could not parse '%s' as int for option '%s'", val, key),
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
-		return st.SetOptionInt(key, int64(concurrency))
 	case OptionStatementIngestUploadConcurrency:
-		concurrency, err := strconv.Atoi(val)
-		if err != nil {
-			return adbc.Error{
-				Msg:  fmt.Sprintf("[Snowflake] could not parse '%s' as int for option '%s'", val, key),
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
-		return st.SetOptionInt(key, int64(concurrency))
 	case OptionStatementIngestCopyConcurrency:
-		concurrency, err := strconv.Atoi(val)
-		if err != nil {
-			return adbc.Error{
-				Msg:  fmt.Sprintf("[Snowflake] could not parse '%s' as int for option '%s'", val, key),
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
-		return st.SetOptionInt(key, int64(concurrency))
 	case OptionStatementIngestTargetFileSize:
-		size, err := strconv.Atoi(val)
+	case OptionStatementMultiStatementCount:
+		intVal, err := strconv.Atoi(val)
 		if err != nil {
 			return adbc.Error{
 				Msg:  fmt.Sprintf("[Snowflake] could not parse '%s' as int for option '%s'", val, key),
 				Code: adbc.StatusInvalidArgument,
 			}
 		}
-		return st.SetOptionInt(key, int64(size))
+		return st.SetOptionInt(key, int64(intVal))
 	case OptionUseHighPrecision:
 		switch val {
 		case adbc.OptionValueEnabled:
@@ -280,6 +245,14 @@ func (st *statement) SetOptionInt(key string, value int64) error {
 		}
 		st.ingestOptions.targetFileSize = uint(value)
 		return nil
+	case OptionStatementMultiStatementCount:
+		if value < 0 {
+			return adbc.Error{
+				Msg:  fmt.Sprintf("invalid value ('%d') for option '%s', must be >= 0", value, key),
+				Code: adbc.StatusInvalidArgument,
+			}
+		}
+		st.statementCount = int(value)
 	}
 	return adbc.Error{
 		Msg:  fmt.Sprintf("[Snowflake] Unknown statement option '%s'", key),
@@ -461,10 +434,20 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 		}
 	}
 
+	// For multi-statement queries, the service currently supports only the JSON
+	// path and not the native Arrow path.
+
 	// for a bound stream reader we'd need to implement something to
 	// concatenate RecordReaders which doesn't exist yet. let's put
 	// that off for now.
 	if st.streamBind != nil || st.bound != nil {
+		if st.statementCount != 1 {
+			return nil, -1, adbc.Error{
+				Msg:  "variable binding not supported with multi-statement queries",
+				Code: adbc.StatusInvalidState,
+			}
+		}
+
 		bind := snowflakeBindReader{
 			doQuery: func(params []driver.NamedValue) (array.RecordReader, error) {
 				loader, err := st.cnxn.cn.QueryArrowStream(ctx, st.query, params...)
@@ -487,7 +470,7 @@ func (st *statement) ExecuteQuery(ctx context.Context) (array.RecordReader, int6
 		return &rdr, -1, nil
 	}
 
-	loader, err := st.cnxn.cn.QueryArrowStream(ctx, st.query)
+	loader, err := st.cnxn.cn.QueryArrowStream(ctx, st.query, driver.NamedValue{Name: "MULTI_STATEMENT_COUNT", Value: st.statementCount})
 	if err != nil {
 		return nil, -1, errToAdbcErr(adbc.StatusInternal, err)
 	}

@@ -1821,8 +1821,11 @@ func {{.Prefix}}DriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcE
 	case C.ADBC_VERSION_1_1_0:
 		sink := fromCArr[byte]((*byte)(unsafe.Pointer(driver)), C.ADBC_DRIVER_1_1_0_SIZE)
 		memory.Set(sink, 0)
+	case C.ADBC_VERSION_1_2_0:
+		sink := fromCArr[byte]((*byte)(unsafe.Pointer(driver)), C.ADBC_DRIVER_1_2_0_SIZE)
+		memory.Set(sink, 0)
 	default:
-		setErr(err, "Only version 1.0.0/1.1.0 supported, got %d", int(version))
+		setErr(err, "Only version 1.0.0/1.1.0/1.2.0 supported, got %d", int(version))
 		return C.ADBC_STATUS_NOT_IMPLEMENTED
 	}
 
@@ -1855,7 +1858,7 @@ func {{.Prefix}}DriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcE
 	driver.StatementGetParameterSchema = (*[0]byte)(C.{{.Prefix}}StatementGetParameterSchema)
 	driver.StatementPrepare = (*[0]byte)(C.{{.Prefix}}StatementPrepare)
 
-	if version == C.ADBC_VERSION_1_1_0 {
+	if version >= C.ADBC_VERSION_1_1_0 {
 		driver.ErrorGetDetailCount = (*[0]byte)(C.{{.Prefix}}ErrorGetDetailCount)
 		driver.ErrorGetDetail = (*[0]byte)(C.{{.Prefix}}ErrorGetDetail)
 		driver.ErrorFromArrayStream = (*[0]byte)(C.{{.Prefix}}ErrorFromArrayStream)
@@ -1888,6 +1891,10 @@ func {{.Prefix}}DriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcE
 		driver.StatementSetOptionBytes = (*[0]byte)(C.{{.Prefix}}StatementSetOptionBytes)
 		driver.StatementSetOptionDouble = (*[0]byte)(C.{{.Prefix}}StatementSetOptionDouble)
 		driver.StatementSetOptionInt = (*[0]byte)(C.{{.Prefix}}StatementSetOptionInt)
+	}
+
+	if version >= C.ADBC_VERSION_1_2_0 {
+		driver.StatementNextResult = (*[0]byte)(C.{{.Prefix}}StatementNextResult)
 	}
 
 	return C.ADBC_STATUS_OK

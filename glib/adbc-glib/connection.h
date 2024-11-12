@@ -37,9 +37,18 @@ G_BEGIN_DECLS
  *
  * ADBC revision 1.1.0.
  *
- * Since: 1.0.0
+ * Since: 1.1.0
  */
 #define GADBC_VERSION_1_1_0 1001000
+
+/**
+ * GADBC_VERSION_1_2_0:
+ *
+ * ADBC revision 1.2.0.
+ *
+ * Since: 1.2.0
+ */
+#define GADBC_VERSION_1_2_0 1002000
 
 /**
  * GADBCInfo:

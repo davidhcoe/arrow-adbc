@@ -21,5 +21,6 @@ namespace Apache.Arrow.Adbc
     {
         public const int Version_1_0_0 = 1000000;
         public const int Version_1_1_0 = 1001000;
+        public const int Version_1_2_0 = 1002000;
     }
 }

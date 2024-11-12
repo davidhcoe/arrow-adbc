@@ -135,6 +135,9 @@ AdbcStatusCode SnowflakeStatementGetParameterSchema(struct AdbcStatement* stmt,
                                                     struct AdbcError* err);
 AdbcStatusCode SnowflakeStatementNew(struct AdbcConnection* cnxn,
                                      struct AdbcStatement* stmt, struct AdbcError* err);
+AdbcStatusCode SnowflakeStatementNextResult(struct AdbcStatement*, struct ArrowSchema*,
+                                            struct ArrowArrayStream*, struct AdbcPartitions*,
+                                            int64_t*, struct AdbcError*);
 AdbcStatusCode SnowflakeStatementPrepare(struct AdbcStatement* stmt,
                                          struct AdbcError* err);
 AdbcStatusCode SnowflakeStatementRelease(struct AdbcStatement* stmt,

@@ -58,6 +58,9 @@ public interface AdbcDriver {
   /** ADBC API revision 1.1.0. */
   long ADBC_VERSION_1_1_0 = 1_001_000;
 
+  /** ADBC API revision 1.2.0. */
+  long ADBC_VERSION_1_2_0 = 1_002_000;
+
   /**
    * Open a database via this driver.
    *

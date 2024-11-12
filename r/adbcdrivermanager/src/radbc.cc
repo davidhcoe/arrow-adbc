@@ -124,7 +124,11 @@ extern "C" SEXP RAdbcLoadDriverFromInitFunc(SEXP driver_init_func_xptr) {
   auto driver = adbc_from_xptr<AdbcDriver>(driver_xptr);
 
   int status =
-      AdbcLoadDriverFromInitFunc(driver_init_func, ADBC_VERSION_1_1_0, driver, nullptr);
+      AdbcLoadDriverFromInitFunc(driver_init_func, ADBC_VERSION_1_2_0, driver, nullptr);
+  if (status == ADBC_STATUS_NOT_IMPLEMENTED) {
+    status =
+        AdbcLoadDriverFromInitFunc(driver_init_func, ADBC_VERSION_1_1_0, driver, nullptr);
+  }
   if (status == ADBC_STATUS_NOT_IMPLEMENTED) {
     status =
         AdbcLoadDriverFromInitFunc(driver_init_func, ADBC_VERSION_1_0_0, driver, nullptr);

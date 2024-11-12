@@ -72,18 +72,21 @@ namespace Apache.Arrow.Adbc.C
 
                 AdbcDriverInit init = Marshal.GetDelegateForFunctionPointer<AdbcDriverInit>(export);
                 CAdbcDriver driver = new CAdbcDriver();
-                int version;
+                int version = 0;
                 using (CallHelper caller = new CallHelper())
                 {
-                    try
+                    foreach (int ver in (int[])[ AdbcVersion.Version_1_2_0, AdbcVersion.Version_1_1_0, AdbcVersion.Version_1_0_0 ])
                     {
-                        caller.Call(init, AdbcVersion.Version_1_1_0, ref driver);
-                        version = AdbcVersion.Version_1_1_0;
-                    }
-                    catch (AdbcException e) when (e.Status == AdbcStatusCode.NotImplemented)
-                    {
-                        caller.Call(init, AdbcVersion.Version_1_0_0, ref driver);
-                        version = AdbcVersion.Version_1_0_0;
+                        try
+                        {
+                            caller.Call(init, ver, ref driver);
+                            version = ver;
+                            break;
+                        }
+                        catch (AdbcException e) when (e.Status == AdbcStatusCode.NotImplemented && ver != AdbcVersion.Version_1_0_0)
+                        {
+                            continue;
+                        }
                     }
 
                     ValidateDriver(ref driver, version);
@@ -169,6 +172,10 @@ namespace Apache.Arrow.Adbc.C
             if (driver.StatementSetOptionBytes == empty) { driver.StatementSetOptionBytes = StatementSetOptionBytesDefault; }
             if (driver.StatementSetOptionDouble == empty) { driver.StatementSetOptionDouble = StatementSetOptionDoubleDefault; }
             if (driver.StatementSetOptionInt == empty) { driver.StatementSetOptionInt = StatementSetOptionIntDefault; }
+
+            if (version < AdbcVersion.Version_1_2_0) { return; }
+
+            if (driver.StatementNextResult == empty) { driver.StatementNextResult = StatementNextResultDefault; }
         }
 
         private static unsafe AdbcStatusCode NotImplemented(CAdbcError* error, string name)

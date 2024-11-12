@@ -537,6 +537,13 @@ AdbcStatusCode StatementGetParameterSchema(struct AdbcStatement* statement,
   return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
+AdbcStatusCode StatementNextResult(struct AdbcStatement*, struct ArrowSchema*,
+                                   struct ArrowArrayStream*, struct AdbcPartitions*,
+                                   int64_t*,struct AdbcError*) {
+  SetError(error, "AdbcStatementNextResult not implemented");
+  return ADBC_STATUS_NOT_IMPLEMENTED;
+}
+
 AdbcStatusCode StatementPrepare(struct AdbcStatement*, struct AdbcError* error) {
   SetError(error, "AdbcStatementPrepare not implemented");
   return ADBC_STATUS_NOT_IMPLEMENTED;
@@ -891,13 +898,13 @@ AdbcStatusCode AdbcDatabaseInit(struct AdbcDatabase* database, struct AdbcError*
   // So we don't confuse a driver into thinking it's initialized already
   database->private_data = nullptr;
   if (args->init_func) {
-    status = AdbcLoadDriverFromInitFunc(args->init_func, ADBC_VERSION_1_1_0,
+    status = AdbcLoadDriverFromInitFunc(args->init_func, ADBC_VERSION_1_2_0,
                                         database->private_driver, error);
   } else if (!args->entrypoint.empty()) {
     status = AdbcLoadDriver(args->driver.c_str(), args->entrypoint.c_str(),
-                            ADBC_VERSION_1_1_0, database->private_driver, error);
+                            ADBC_VERSION_1_2_0, database->private_driver, error);
   } else {
-    status = AdbcLoadDriver(args->driver.c_str(), nullptr, ADBC_VERSION_1_1_0,
+    status = AdbcLoadDriver(args->driver.c_str(), nullptr, ADBC_VERSION_1_2_0,
                             database->private_driver, error);
   }
   if (status != ADBC_STATUS_OK) {
@@ -1625,9 +1632,10 @@ AdbcStatusCode AdbcLoadDriver(const char* driver_name, const char* entrypoint,
   switch (version) {
     case ADBC_VERSION_1_0_0:
     case ADBC_VERSION_1_1_0:
+    case ADBC_VERSION_1_2_0:
       break;
     default:
-      SetError(error, "Only ADBC 1.0.0 and 1.1.0 are supported");
+      SetError(error, "Only ADBC 1.0.0, 1.1.0 and 1.2.0 are supported");
       return ADBC_STATUS_NOT_IMPLEMENTED;
   }
 
@@ -1680,6 +1688,7 @@ AdbcStatusCode AdbcLoadDriverFromInitFunc(AdbcDriverInitFunc init_func, int vers
   constexpr std::array<int, 2> kSupportedVersions = {
       ADBC_VERSION_1_1_0,
       ADBC_VERSION_1_0_0,
+      ADBC_VERSION_1_2_0,
   };
 
   if (!raw_driver) {
@@ -1690,9 +1699,10 @@ AdbcStatusCode AdbcLoadDriverFromInitFunc(AdbcDriverInitFunc init_func, int vers
   switch (version) {
     case ADBC_VERSION_1_0_0:
     case ADBC_VERSION_1_1_0:
+    case ADBC_VERSION_1_2_0:
       break;
     default:
-      SetError(error, "Only ADBC 1.0.0 and 1.1.0 are supported");
+      SetError(error, "Only ADBC 1.0.0, 1.1.0 and 1.2.0 are supported");
       return ADBC_STATUS_NOT_IMPLEMENTED;
   }
 
@@ -1784,6 +1794,10 @@ AdbcStatusCode AdbcLoadDriverFromInitFunc(AdbcDriverInitFunc init_func, int vers
     FILL_DEFAULT(driver, StatementSetOptionBytes);
     FILL_DEFAULT(driver, StatementSetOptionDouble);
     FILL_DEFAULT(driver, StatementSetOptionInt);
+  }
+  if (version >= ADBC_VERSION_1_2_0) {
+    auto* driver = reinterpret_cast<struct AdbcDriver*>(raw_driver);
+    FILL_DEFAULT(driver, StatementNextResult);
   }
 
   return ADBC_STATUS_OK;

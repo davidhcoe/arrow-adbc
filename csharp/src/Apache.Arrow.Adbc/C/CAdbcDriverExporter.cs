@@ -97,7 +97,7 @@ namespace Apache.Arrow.Adbc.C
         {
             if (version != AdbcVersion.Version_1_0_0)
             {
-                // TODO: implement support for AdbcVersion.Version_1_1_0
+                // TODO: implement support for AdbcVersion.Version_1_1_0 and AdbcVersion.Version_1_2_0
                 return AdbcStatusCode.InternalError;
             }
 

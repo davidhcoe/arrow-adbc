@@ -37,6 +37,7 @@ pub const ADBC_STATUS_UNAUTHORIZED: FFI_AdbcStatusCode = 14;
 
 pub const ADBC_VERSION_1_0_0: c_int = 1_000_000;
 pub const ADBC_VERSION_1_1_0: c_int = 1_001_000;
+pub const ADBC_VERSION_1_2_0: c_int = 1_002_000;
 
 pub const ADBC_INFO_VENDOR_NAME: u32 = 0;
 pub const ADBC_INFO_VENDOR_VERSION: u32 = 1;

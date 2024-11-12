@@ -103,6 +103,8 @@ pub enum AdbcVersion {
     V100,
     /// Version 1.1.0.
     V110,
+    /// Version 1.2.0.
+    V120,
 }
 
 impl From<AdbcVersion> for c_int {
@@ -110,6 +112,7 @@ impl From<AdbcVersion> for c_int {
         match value {
             AdbcVersion::V100 => constants::ADBC_VERSION_1_0_0,
             AdbcVersion::V110 => constants::ADBC_VERSION_1_1_0,
+            AdbcVersion::V110 => constants::ADBC_VERSION_1_2_0,
         }
     }
 }
@@ -120,6 +123,7 @@ impl TryFrom<c_int> for AdbcVersion {
         match value {
             constants::ADBC_VERSION_1_0_0 => Ok(AdbcVersion::V100),
             constants::ADBC_VERSION_1_1_0 => Ok(AdbcVersion::V110),
+            constants::ADBC_VERSION_1_2_0 => Ok(AdbcVersion::V120),
             _ => Err(Error::with_message_and_status(
                 format!("Unknown ADBC version: {}", value),
                 Status::InvalidArguments,

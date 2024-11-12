@@ -1666,6 +1666,10 @@ func SnowflakeStatementGetParameterSchema(stmt *C.struct_AdbcStatement, schema *
 	return C.ADBC_STATUS_OK
 }
 
+//export SnowflakeStatementNextResult
+func SnowflakeStatementNextResult(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, stream *C.struct_ArrowArrayStream, partitions *C.struct_AdbcPartitions, affected *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+}
+
 //export SnowflakeStatementSetOption
 func SnowflakeStatementSetOption(stmt *C.struct_AdbcStatement, key, value *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
@@ -1824,8 +1828,11 @@ func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcErr
 	case C.ADBC_VERSION_1_1_0:
 		sink := fromCArr[byte]((*byte)(unsafe.Pointer(driver)), C.ADBC_DRIVER_1_1_0_SIZE)
 		memory.Set(sink, 0)
+	case C.ADBC_VERSION_1_2_0:
+		sink := fromCArr[byte]((*byte)(unsafe.Pointer(driver)), C.ADBC_DRIVER_1_2_0_SIZE)
+		memory.Set(sink, 0)
 	default:
-		setErr(err, "Only version 1.0.0/1.1.0 supported, got %d", int(version))
+		setErr(err, "Only version 1.0.0/1.1.0/1.2.0 supported, got %d", int(version))
 		return C.ADBC_STATUS_NOT_IMPLEMENTED
 	}
 
@@ -1858,7 +1865,7 @@ func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcErr
 	driver.StatementGetParameterSchema = (*[0]byte)(C.SnowflakeStatementGetParameterSchema)
 	driver.StatementPrepare = (*[0]byte)(C.SnowflakeStatementPrepare)
 
-	if version == C.ADBC_VERSION_1_1_0 {
+	if version >= C.ADBC_VERSION_1_1_0 {
 		driver.ErrorGetDetailCount = (*[0]byte)(C.SnowflakeErrorGetDetailCount)
 		driver.ErrorGetDetail = (*[0]byte)(C.SnowflakeErrorGetDetail)
 		driver.ErrorFromArrayStream = (*[0]byte)(C.SnowflakeErrorFromArrayStream)
@@ -1891,6 +1898,10 @@ func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcErr
 		driver.StatementSetOptionBytes = (*[0]byte)(C.SnowflakeStatementSetOptionBytes)
 		driver.StatementSetOptionDouble = (*[0]byte)(C.SnowflakeStatementSetOptionDouble)
 		driver.StatementSetOptionInt = (*[0]byte)(C.SnowflakeStatementSetOptionInt)
+	}
+
+	if version >= C.ADBC_VERSION_1_2_0 {
+		driver.StatementNextResult = (*[0]byte)(C.SnowflakeStatementNextResult)
 	}
 
 	return C.ADBC_STATUS_OK
