@@ -246,6 +246,7 @@ Why ADBC?
    format/versioning
    format/comparison
    format/how_manager
+   format/related_work
 
 .. toctree::
    :maxdepth: 1
@@ -254,4 +255,5 @@ Why ADBC?
 
    development/contributing
    development/nightly
+   development/versioning
    development/releasing

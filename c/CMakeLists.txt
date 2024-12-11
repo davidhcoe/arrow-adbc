@@ -23,6 +23,7 @@ include(BuildUtils)
 project(adbc
         VERSION "${ADBC_BASE_VERSION}"
         LANGUAGES C CXX)
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -53,6 +54,9 @@ if(ADBC_DRIVER_FLIGHTSQL)
 endif()
 
 if(ADBC_DRIVER_MANAGER)
+  install(FILES "${REPOSITORY_ROOT}/c/include/adbc_driver_manager.h" DESTINATION include)
+  install(FILES "${REPOSITORY_ROOT}/c/include/arrow-adbc/adbc_driver_manager.h"
+          DESTINATION include/arrow-adbc)
   add_subdirectory(driver_manager)
 endif()
 
@@ -66,6 +70,10 @@ endif()
 
 if(ADBC_DRIVER_SNOWFLAKE)
   add_subdirectory(driver/snowflake)
+endif()
+
+if(ADBC_DRIVER_BIGQUERY)
+  add_subdirectory(driver/bigquery)
 endif()
 
 if(ADBC_INTEGRATION_DUCKDB)
@@ -117,6 +125,10 @@ LIBRARY=$<TARGET_FILE:adbc_driver_${TARGET}_shared>" ${Python3_EXECUTABLE} -m pi
 
   if(ADBC_DRIVER_SNOWFLAKE)
     adbc_install_python_package(snowflake)
+  endif()
+
+  if(ADBC_DRIVER_BIGQUERY)
+    adbc_install_python_package(bigquery)
   endif()
 endif()
 

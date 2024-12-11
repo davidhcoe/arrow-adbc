@@ -57,6 +57,7 @@ cpp/.idea/
 c/apidoc/html/
 c/apidoc/latex/
 c/apidoc/xml/
+c/apidoc/objects.inv
 docs/example.gz
 docs/example1.dat
 docs/example3.dat
@@ -121,3 +122,7 @@ target/
 /ci/linux-packages/yum/merged/
 /ci/linux-packages/yum/repositories/
 /ci/linux-packages/yum/tmp/
+
+# Meson subproject support
+/c/subprojects/*
+!/c/subprojects/*.wrap

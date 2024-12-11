@@ -19,7 +19,7 @@
 
 #pragma once
 
-#include <adbc.h>
+#include <arrow-adbc/adbc.h>
 #include <nanoarrow/nanoarrow.h>
 #include <sqlite3.h>
 
@@ -40,11 +40,6 @@ struct ADBC_EXPORT AdbcSqliteBinder {
   int64_t next_row;
 };
 
-ADBC_EXPORT
-AdbcStatusCode AdbcSqliteBinderSetArray(struct AdbcSqliteBinder* binder,
-                                        struct ArrowArray* values,
-                                        struct ArrowSchema* schema,
-                                        struct AdbcError* error);
 ADBC_EXPORT
 AdbcStatusCode AdbcSqliteBinderSetArrayStream(struct AdbcSqliteBinder* binder,
                                               struct ArrowArrayStream* values,

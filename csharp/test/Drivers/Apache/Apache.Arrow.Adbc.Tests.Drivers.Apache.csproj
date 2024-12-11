@@ -6,17 +6,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Spark\ClientTests.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
-    <PackageReference Include="xunit" Version="2.8.1" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.1">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,19 +28,24 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Spark\Resources\sparkconfig.json">
+    <None Update="Impala\Resources\ImpalaData.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Spark\Resources\sparkconfig-http.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="Spark\Resources\sparkconfig-databricks.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Impala\Resources\impalaconfig.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="Spark\Resources\SparkData-Databricks.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="Spark\Resources\SparkData.sql">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Hive2\" />
   </ItemGroup>
 
 </Project>

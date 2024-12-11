@@ -62,7 +62,7 @@
 #include <cstring>
 #include <iostream>
 
-#include <adbc.h>
+#include <arrow-adbc/adbc.h>
 #include <nanoarrow.h>
 
 /// Then we'll add some (very basic) error checking helpers.
@@ -139,7 +139,7 @@ int main() {
   /// -----------------
   ///
   /// We execute a query by setting the query on the statement, then
-  /// calling :cpp:func:`AdbcStatementExecuteQuery`.  The results come
+  /// calling :c:func:`AdbcStatementExecuteQuery`.  The results come
   /// back through the `Arrow C Data Interface`_.
   ///
   /// .. _Arrow C Data Interface: https://arrow.apache.org/docs/format/CDataInterface.html

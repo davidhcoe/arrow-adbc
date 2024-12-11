@@ -28,9 +28,9 @@
 //! This library currently provides:
 //! - An abstract Rust API to be implemented by vendor-specific drivers.
 //! - A driver manager which implements this same API, but dynamically loads
-//! drivers internally and forwards calls appropriately using the [C API](https://github.com/apache/arrow-adbc/blob/main/adbc.h).
+//!   drivers internally and forwards calls appropriately using the [C API](https://github.com/apache/arrow-adbc/blob/main/adbc.h).
 //! - A driver exporter that takes an implementation of the abstract API and
-//! turns it into an object file that implements the C API.
+//!   turns it into an object file that implements the C API.
 //!
 //! # Native Rust drivers
 //!
@@ -70,8 +70,8 @@ pub mod schemas;
 
 use std::collections::HashSet;
 
-use arrow::datatypes::Schema;
-use arrow::record_batch::{RecordBatch, RecordBatchReader};
+use arrow_array::{RecordBatch, RecordBatchReader};
+use arrow_schema::Schema;
 
 use error::Result;
 use options::{OptionConnection, OptionDatabase, OptionStatement, OptionValue};
@@ -335,9 +335,9 @@ pub trait Connection: Optionable<Option = OptionConnection> {
     /// - `db_schema` - The database schema (or `None` if not applicable). May be a search pattern
     /// - `table_name` - The table name (or `None` if not applicable). May be a search pattern
     /// - `approximate` - If false, request exact values of statistics, else
-    /// allow for best-effort, approximate, or cached values. The database may
-    /// return approximate values regardless, as indicated in the result.
-    /// Requesting exact values may be expensive or unsupported.
+    ///   allow for best-effort, approximate, or cached values. The database may
+    ///   return approximate values regardless, as indicated in the result.
+    ///   Requesting exact values may be expensive or unsupported.
     ///
     /// # Result
     ///
@@ -369,8 +369,7 @@ pub trait Connection: Optionable<Option = OptionConnection> {
     /// 2. A dictionary-encoded statistic name (although we do not use the Arrow
     ///    dictionary type). Values in [0, 1024) are reserved for ADBC.  Other
     ///    values are for implementation-specific statistics.  For the definitions
-    ///    of predefined statistic types, TODO (change this when statistics enum is added )
-    ///     see \ref adbc-table-statistics. To get
+    ///    of predefined statistic types, see [options::Statistics]. To get
     ///    driver-specific statistic names, use [Connection::get_statistic_names].
     /// 3. If true, then the value is approximate or best-effort.
     ///

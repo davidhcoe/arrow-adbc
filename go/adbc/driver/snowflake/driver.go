@@ -25,7 +25,7 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
-	"github.com/apache/arrow/go/v17/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/snowflakedb/gosnowflake"
 )
 
@@ -93,6 +93,8 @@ const (
 	OptionDisableTelemetry           = "adbc.snowflake.sql.client_option.disable_telemetry"
 	// snowflake driver logging level
 	OptionLogTracing = "adbc.snowflake.sql.client_option.tracing"
+	// snowflake driver client logging config file
+	OptionClientConfigFile = "adbc.snowflake.sql.client_option.config_file"
 	// When true, the MFA token is cached in the credential manager. True by default
 	// on Windows/OSX, false for Linux
 	OptionClientRequestMFAToken = "adbc.snowflake.sql.client_option.cache_mfa_token"

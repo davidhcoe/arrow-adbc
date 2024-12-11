@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 
-#include <adbc.h>
+#include <arrow-adbc/adbc.h>
 #include <libpq-fe.h>
 
 #include "postgres_type.h"
@@ -73,13 +74,10 @@ class PostgresConnection {
     return type_resolver_;
   }
   bool autocommit() const { return autocommit_; }
+  std::string_view VendorName();
+  const std::array<int, 3>& VendorVersion();
 
  private:
-  AdbcStatusCode PostgresConnectionGetInfoImpl(const uint32_t* info_codes,
-                                               size_t info_codes_length,
-                                               struct ArrowSchema* schema,
-                                               struct ArrowArray* array,
-                                               struct AdbcError* error);
   std::shared_ptr<PostgresDatabase> database_;
   std::shared_ptr<PostgresTypeResolver> type_resolver_;
   PGconn* conn_;

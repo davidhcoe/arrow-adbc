@@ -30,7 +30,7 @@ Apache, the Apache feather logo, and the Apache Arrow project logo are either
 registered trademarks or trademarks of The Apache Software Foundation in the
 United States and other countries."""
 author = "the Apache Arrow Developers"
-release = "13 (dev)"
+release = "16 (dev)"
 # Needed to generate version switcher
 version = release
 
@@ -43,7 +43,6 @@ extensions = [
     "adbc_cookbook",
     # generic directives to enable intersphinx for java
     "adbc_java_domain",
-    "breathe",
     "numpydoc",
     "sphinx.ext.autodoc",
     "sphinx.ext.doctest",
@@ -78,12 +77,15 @@ autodoc_default_options = {
     "show-inheritance": True,
 }
 
-# -- Options for Breathe -----------------------------------------------------
-
-breathe_default_project = "adbc"
-breathe_projects = {
-    "adbc": "../../c/apidoc/xml/",
-}
+# https://stackoverflow.com/questions/11417221/sphinx-autodoc-gives-warning-pyclass-reference-target-not-found-type-warning
+nitpick_ignore = [
+    ("py:class", "abc.ABC"),
+    ("py:class", "datetime.date"),
+    ("py:class", "datetime.datetime"),
+    ("py:class", "datetime.time"),
+    ("py:class", "enum.Enum"),
+    ("py:class", "enum.IntEnum"),
+]
 
 # -- Options for doctest -----------------------------------------------------
 
@@ -116,6 +118,8 @@ html_theme_options = {
 
 intersphinx_mapping = {
     "arrow": ("https://arrow.apache.org/docs/", None),
+    "pandas": ("https://pandas.pydata.org/docs/", None),
+    "polars": ("https://docs.pola.rs/api/python/stable/", None),
 }
 
 # Add env vars like ADBC_INTERSPHINX_MAPPING_adbc_java = url;path
@@ -130,10 +134,6 @@ def _find_intersphinx_mappings():
             url, _, path = val.partition(";")
             print("[ADBC] Found Intersphinx mapping", name)
             intersphinx_mapping[name] = (url, path)
-        #         "adbc_java": (
-        #     "http://localhost:8000/",
-        #     "/home/lidavidm/Code/arrow-adbc/java/target/site/apidocs/objects.inv",
-        # ),
 
 
 _find_intersphinx_mappings()

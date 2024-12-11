@@ -30,9 +30,9 @@ import (
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal/driverbase"
-	"github.com/apache/arrow/go/v17/arrow/array"
-	"github.com/apache/arrow/go/v17/arrow/flight"
-	"github.com/apache/arrow/go/v17/arrow/flight/flightsql"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/flight"
+	"github.com/apache/arrow-go/v18/arrow/flight/flightsql"
 	"github.com/bluele/gcache"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -42,7 +42,6 @@ import (
 
 type dbDialOpts struct {
 	opts       []grpc.DialOption
-	block      bool
 	maxMsgSize int
 	authority  string
 }
@@ -51,9 +50,6 @@ func (d *dbDialOpts) rebuild() {
 	d.opts = []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(d.maxMsgSize),
 			grpc.MaxCallSendMsgSize(d.maxMsgSize)),
-	}
-	if d.block {
-		d.opts = append(d.opts, grpc.WithBlock())
 	}
 	if d.authority != "" {
 		d.opts = append(d.opts, grpc.WithAuthority(d.authority))
@@ -200,19 +196,8 @@ func (d *databaseImpl) SetOptions(cnOptions map[string]string) error {
 		delete(cnOptions, OptionTimeoutConnect)
 	}
 
-	if val, ok := cnOptions[OptionWithBlock]; ok {
-		if val == adbc.OptionValueEnabled {
-			d.dialOpts.block = true
-		} else if val == adbc.OptionValueDisabled {
-			d.dialOpts.block = false
-		} else {
-			return adbc.Error{
-				Msg:  fmt.Sprintf("Invalid value for database option '%s': '%s'", OptionWithBlock, val),
-				Code: adbc.StatusInvalidArgument,
-			}
-		}
-		delete(cnOptions, OptionWithBlock)
-	}
+	// gRPC deprecated this and explicitly recommends against it
+	delete(cnOptions, OptionWithBlock)
 
 	if val, ok := cnOptions[OptionWithMaxMsgSize]; ok {
 		var err error
@@ -514,7 +499,6 @@ func (d *databaseImpl) Open(ctx context.Context) (adbc.Connection, error) {
 	return driverbase.NewConnectionBuilder(conn).
 		WithDriverInfoPreparer(conn).
 		WithAutocommitSetter(conn).
-		WithDbObjectsEnumerator(conn).
 		WithCurrentNamespacer(conn).
 		Connection(), nil
 }

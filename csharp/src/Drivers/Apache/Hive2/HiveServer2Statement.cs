@@ -16,49 +16,106 @@
 */
 
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Apache.Arrow.Ipc;
 using Apache.Hive.Service.Rpc.Thrift;
+using Thrift.Transport;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
 {
-    public abstract class HiveServer2Statement : AdbcStatement
+    internal abstract class HiveServer2Statement : AdbcStatement
     {
-        private const int PollTimeMillisecondsDefault = 500;
-        private const int BatchSizeDefault = 50000;
-        protected internal HiveServer2Connection connection;
-        protected internal TOperationHandle? operationHandle;
-
         protected HiveServer2Statement(HiveServer2Connection connection)
         {
-            this.connection = connection;
+            Connection = connection;
         }
 
         protected virtual void SetStatementProperties(TExecuteStatementReq statement)
         {
+            statement.QueryTimeout = QueryTimeoutSeconds;
         }
 
-        protected abstract IArrowArrayStream NewReader<T>(T statement, Schema schema) where T : HiveServer2Statement;
+        public override QueryResult ExecuteQuery()
+        {
+            CancellationToken cancellationToken = ApacheUtility.GetCancellationToken(QueryTimeoutSeconds, ApacheUtility.TimeUnit.Seconds);
+            try
+            {
+                return ExecuteQueryAsyncInternal(cancellationToken).Result;
+            }
+            catch (Exception ex)
+                when (ApacheUtility.ContainsException(ex, out OperationCanceledException? _) ||
+                     (ApacheUtility.ContainsException(ex, out TTransportException? _) && cancellationToken.IsCancellationRequested))
+            {
+                throw new TimeoutException("The query execution timed out. Consider increasing the query timeout value.", ex);
+            }
+            catch (Exception ex) when (ex is not HiveServer2Exception)
+            {
+                throw new HiveServer2Exception($"An unexpected error occurred while fetching results. '{ex.Message}'", ex);
+            }
+        }
 
-        public override QueryResult ExecuteQuery() => ExecuteQueryAsync().AsTask().Result;
+        public override UpdateResult ExecuteUpdate()
+        {
+            CancellationToken cancellationToken = ApacheUtility.GetCancellationToken(QueryTimeoutSeconds, ApacheUtility.TimeUnit.Seconds);
+            try
+            {
+                return ExecuteUpdateAsyncInternal(cancellationToken).Result;
+            }
+            catch (Exception ex)
+                when (ApacheUtility.ContainsException(ex, out OperationCanceledException? _) ||
+                     (ApacheUtility.ContainsException(ex, out TTransportException? _) && cancellationToken.IsCancellationRequested))
+            {
+                throw new TimeoutException("The query execution timed out. Consider increasing the query timeout value.", ex);
+            }
+            catch (Exception ex) when (ex is not HiveServer2Exception)
+            {
+                throw new HiveServer2Exception($"An unexpected error occurred while fetching results. '{ex.Message}'", ex);
+            }
+        }
 
-        public override UpdateResult ExecuteUpdate() => ExecuteUpdateAsync().Result;
+        private async Task<QueryResult> ExecuteQueryAsyncInternal(CancellationToken cancellationToken = default)
+        {
+            // this could either:
+            // take QueryTimeoutSeconds * 3
+            // OR
+            // take QueryTimeoutSeconds (but this could be restricting)
+            await ExecuteStatementAsync(cancellationToken); // --> get QueryTimeout +
+            await HiveServer2Connection.PollForResponseAsync(OperationHandle!, Connection.Client, PollTimeMilliseconds, cancellationToken); // + poll, up to QueryTimeout
+            Schema schema = await GetResultSetSchemaAsync(OperationHandle!, Connection.Client, cancellationToken); // + get the result, up to QueryTimeout
+
+            return new QueryResult(-1, Connection.NewReader(this, schema));
+        }
 
         public override async ValueTask<QueryResult> ExecuteQueryAsync()
         {
-            await ExecuteStatementAsync();
-            await PollForResponseAsync();
-            Schema schema = await GetSchemaAsync();
-
-            // TODO: Ensure this is set dynamically based on server capabilities
-            return new QueryResult(-1, NewReader(this, schema));
+            CancellationToken cancellationToken = ApacheUtility.GetCancellationToken(QueryTimeoutSeconds, ApacheUtility.TimeUnit.Seconds);
+            try
+            {
+                return await ExecuteQueryAsyncInternal(cancellationToken);
+            }
+            catch (Exception ex)
+                when (ApacheUtility.ContainsException(ex, out OperationCanceledException? _) ||
+                     (ApacheUtility.ContainsException(ex, out TTransportException? _) && cancellationToken.IsCancellationRequested))
+            {
+                throw new TimeoutException("The query execution timed out. Consider increasing the query timeout value.", ex);
+            }
+            catch (Exception ex) when (ex is not HiveServer2Exception)
+            {
+                throw new HiveServer2Exception($"An unexpected error occurred while fetching results. '{ex.Message}'", ex);
+            }
         }
 
-        public override async Task<UpdateResult> ExecuteUpdateAsync()
+        private async Task<Schema> GetResultSetSchemaAsync(TOperationHandle operationHandle, TCLIService.IAsync client, CancellationToken cancellationToken = default)
+        {
+            TGetResultSetMetadataResp response = await HiveServer2Connection.GetResultSetMetadataAsync(operationHandle, client, cancellationToken);
+            return Connection.SchemaParser.GetArrowSchema(response.Schema, Connection.DataTypeConversion);
+        }
+
+        public async Task<UpdateResult> ExecuteUpdateAsyncInternal(CancellationToken cancellationToken = default)
         {
             const string NumberOfAffectedRowsColumnName = "num_affected_rows";
-
-            QueryResult queryResult = await ExecuteQueryAsync();
+            QueryResult queryResult = await ExecuteQueryAsyncInternal(cancellationToken);
             if (queryResult.Stream == null)
             {
                 throw new AdbcException("no data found");
@@ -73,11 +130,13 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
                 throw new AdbcException($"Unexpected data type for column: '{NumberOfAffectedRowsColumnName}'", new ArgumentException(NumberOfAffectedRowsColumnName));
             }
 
-            // If no altered rows, i.e. DDC statements, then -1 is the default.
+            // The default is -1.
+            if (affectedRowsField == null) return new UpdateResult(-1);
+
             long? affectedRows = null;
             while (true)
             {
-                using RecordBatch nextBatch = await stream.ReadNextRecordBatchAsync();
+                using RecordBatch nextBatch = await stream.ReadNextRecordBatchAsync(cancellationToken);
                 if (nextBatch == null) { break; }
                 Int64Array numOfModifiedArray = (Int64Array)nextBatch.Column(NumberOfAffectedRowsColumnName);
                 // Note: should only have one item, but iterate for completeness
@@ -88,85 +147,95 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
                 }
             }
 
+            // If no altered rows, i.e. DDC statements, then -1 is the default.
             return new UpdateResult(affectedRows ?? -1);
+        }
+
+        public override async Task<UpdateResult> ExecuteUpdateAsync()
+        {
+            CancellationToken cancellationToken = ApacheUtility.GetCancellationToken(QueryTimeoutSeconds, ApacheUtility.TimeUnit.Seconds);
+            try
+            {
+                return await ExecuteUpdateAsyncInternal(cancellationToken);
+            }
+            catch (Exception ex)
+                when (ApacheUtility.ContainsException(ex, out OperationCanceledException? _) ||
+                     (ApacheUtility.ContainsException(ex, out TTransportException? _) && cancellationToken.IsCancellationRequested))
+            {
+                throw new TimeoutException("The query execution timed out. Consider increasing the query timeout value.", ex);
+            }
+            catch (Exception ex) when (ex is not HiveServer2Exception)
+            {
+                throw new HiveServer2Exception($"An unexpected error occurred while fetching results. '{ex.Message}'", ex);
+            }
         }
 
         public override void SetOption(string key, string value)
         {
             switch (key)
             {
-                case Options.PollTimeMilliseconds:
+                case ApacheParameters.PollTimeMilliseconds:
                     UpdatePollTimeIfValid(key, value);
                     break;
-                case Options.BatchSize:
+                case ApacheParameters.BatchSize:
                     UpdateBatchSizeIfValid(key, value);
+                    break;
+                case ApacheParameters.QueryTimeoutSeconds:
+                    if (ApacheUtility.QueryTimeoutIsValid(key, value, out int queryTimeoutSeconds))
+                    {
+                        QueryTimeoutSeconds = queryTimeoutSeconds;
+                    }
                     break;
                 default:
                     throw AdbcException.NotImplemented($"Option '{key}' is not implemented.");
             }
         }
 
-        protected async Task ExecuteStatementAsync()
+        protected async Task ExecuteStatementAsync(CancellationToken cancellationToken = default)
         {
-            TExecuteStatementReq executeRequest = new TExecuteStatementReq(this.connection.sessionHandle, this.SqlQuery);
+            TExecuteStatementReq executeRequest = new TExecuteStatementReq(Connection.SessionHandle, SqlQuery);
             SetStatementProperties(executeRequest);
-            TExecuteStatementResp executeResponse = await this.connection.Client.ExecuteStatement(executeRequest);
+            TExecuteStatementResp executeResponse = await Connection.Client.ExecuteStatement(executeRequest, cancellationToken);
             if (executeResponse.Status.StatusCode == TStatusCode.ERROR_STATUS)
             {
                 throw new HiveServer2Exception(executeResponse.Status.ErrorMessage)
                     .SetSqlState(executeResponse.Status.SqlState)
                     .SetNativeError(executeResponse.Status.ErrorCode);
             }
-            this.operationHandle = executeResponse.OperationHandle;
+            OperationHandle = executeResponse.OperationHandle;
         }
 
-        protected async Task PollForResponseAsync()
+        protected internal int PollTimeMilliseconds { get; private set; } = HiveServer2Connection.PollTimeMillisecondsDefault;
+
+        protected internal long BatchSize { get; private set; } = HiveServer2Connection.BatchSizeDefault;
+
+        protected internal int QueryTimeoutSeconds
         {
-            TGetOperationStatusResp? statusResponse = null;
-            do
-            {
-                if (statusResponse != null) { await Task.Delay(PollTimeMilliseconds); }
-                TGetOperationStatusReq request = new TGetOperationStatusReq(this.operationHandle);
-                statusResponse = await this.connection.Client.GetOperationStatus(request);
-            } while (statusResponse.OperationState == TOperationState.PENDING_STATE || statusResponse.OperationState == TOperationState.RUNNING_STATE);
+            // Coordinate updates with the connection
+            get => Connection.QueryTimeoutSeconds;
+            set => Connection.QueryTimeoutSeconds = value;
         }
 
-        protected async ValueTask<Schema> GetSchemaAsync()
-        {
-            TGetResultSetMetadataReq request = new TGetResultSetMetadataReq(this.operationHandle);
-            TGetResultSetMetadataResp response = await this.connection.Client.GetResultSetMetadata(request);
-            return SchemaParser.GetArrowSchema(response.Schema);
-        }
+        public HiveServer2Connection Connection { get; private set; }
 
-        protected internal int PollTimeMilliseconds { get; private set; } = PollTimeMillisecondsDefault;
-
-        protected internal int BatchSize { get; private set; } = BatchSizeDefault;
-
-        /// <summary>
-        /// Provides the constant string key values to the <see cref="AdbcStatement.SetOption(string, string)" /> method.
-        /// </summary>
-        public class Options
-        {
-            // Options common to all HiveServer2Statement-derived drivers go here
-            public const string PollTimeMilliseconds = "adbc.statement.polltime_milliseconds";
-            public const string BatchSize = "adbc.statement.batch_size";
-        }
+        public TOperationHandle? OperationHandle { get; private set; }
 
         private void UpdatePollTimeIfValid(string key, string value) => PollTimeMilliseconds = !string.IsNullOrEmpty(key) && int.TryParse(value, result: out int pollTimeMilliseconds) && pollTimeMilliseconds >= 0
             ? pollTimeMilliseconds
-            : throw new ArgumentException($"The value '{value}' for option '{key}' is invalid. Must be a numeric value greater than or equal to zero.", nameof(value));
+            : throw new ArgumentOutOfRangeException(key, value, $"The value '{value}' for option '{key}' is invalid. Must be a numeric value greater than or equal to 0.");
 
-        private void UpdateBatchSizeIfValid(string key, string value) => BatchSize = !string.IsNullOrEmpty(value) && int.TryParse(value, out int batchSize) && batchSize > 0
+        private void UpdateBatchSizeIfValid(string key, string value) => BatchSize = !string.IsNullOrEmpty(value) && long.TryParse(value, out long batchSize) && batchSize > 0
             ? batchSize
-            : throw new ArgumentException($"The value '{value}' for option '{key}' is invalid. Must be a numeric value greater than zero.", nameof(value));
+            : throw new ArgumentOutOfRangeException(key, value, $"The value '{value}' for option '{key}' is invalid. Must be a numeric value greater than zero.");
 
         public override void Dispose()
         {
-            if (this.operationHandle != null)
+            if (OperationHandle != null)
             {
-                TCloseOperationReq request = new TCloseOperationReq(this.operationHandle);
-                this.connection.Client.CloseOperation(request).Wait();
-                this.operationHandle = null;
+                CancellationToken cancellationToken = ApacheUtility.GetCancellationToken(QueryTimeoutSeconds, ApacheUtility.TimeUnit.Seconds);
+                TCloseOperationReq request = new TCloseOperationReq(OperationHandle);
+                Connection.Client.CloseOperation(request, cancellationToken).Wait();
+                OperationHandle = null;
             }
 
             base.Dispose();

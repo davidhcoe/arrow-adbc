@@ -605,3 +605,157 @@
 - **rust**: add public abstract API and dummy driver implementation (#1725)
 - **csharp/src/Drivers**: introduce drivers for Apache systems built on Thrift (#1710)
 - **format**: add info codes for supported capabilities (#1649)
+
+## ADBC Libraries 13 (2024-07-01)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.1.0
+- C#: 0.13.0
+- Java: 0.13.0
+- R: 0.13.0
+- Rust: 0.13.0
+
+### Fix
+
+- **c/driver/sqlite**: Make SQLite driver C99 compliant (#1946)
+- **go/adbc/pkg**: clean up potential sites where Go GC may be exposed (#1942)
+- **c/driver/postgresql**: chunk large COPY payloads (#1937)
+- **go/adbc/pkg**: guard against potential crash (#1938)
+- **csharp/src/Drivers/Interop/Snowflake**: Swapping PreBuildEvent to DispatchToInnerBuilds (#1909)
+- **csharp/src/Drivers/Apache/Spark**: fix parameter naming convention (#1895)
+- **csharp/src/Apache.Arrow.Adbc/C**: GetObjects should preserve a null tableTypes parameter value (#1894)
+- **go/adbc/driver/snowflake**: Records dropped on ingestion when empty batch is present (#1866)
+- **csharp**: Fix packing process (#1862)
+- **csharp/src/Drivers/Apache**: set the precision and scale correctly on Decimal128Type (#1858)
+
+### Feat
+
+- Meson Support for ADBC (#1904)
+- **rust**: add integration tests and some improvements (#1883)
+- **csharp/src/Drivers/Apache/Spark**: extend SQL type name parsing for all types (#1911)
+- **csharp/src/Drivers/Apache**: improve type name handling for CHAR/VARCHAR/DECIMAL (#1896)
+- **csharp/src/Drivers/Apache**: improve GetObjects metadata returned for columns (#1884)
+- **rust**: add the driver manager (#1803)
+- **csharp**: redefine C# APIs to prioritize full async support (#1865)
+- **csharp/src/Drivers/Apache**: extend capability of GetInfo for Spark driver (#1863)
+- **csharp/src/Drivers/Apache**: add implementation for AdbcStatement.SetOption on Spark driver (#1849)
+- **csharp**: Move more options to be set centrally and enable TreatWarningsAsErrors (#1852)
+- **csharp**: Initial changes for ADBC 1.1 in C# implementation (#1821)
+- **csharp/src/Drivers/Apache/Spark**: implement async overrides for Spark driver (#1830)
+
+## ADBC Libraries 14 (2024-08-30)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.2.0
+- C#: 0.14.0
+- Java: 0.14.0
+- R: 0.14.0
+- Rust: 0.14.0
+
+### Feat
+
+- **go/adbc/driver/snowflake**: Keep track of all files copied and skip empty files in bulk_ingestion (#2106)
+- **dev/release**: add Rust release process (#2107)
+- **go/adbc/driver/bigquery**: Implement GetObjects and get tests passing (#2044)
+- **csharp/src/Client**: add support for parameterized execution (#2096)
+- **c/driver/postgresql**: Support queries that bind parameters and return a result (#2065)
+- **c/driver/postgresql**: Support JSON and JSONB types (#2072)
+- **go/adbc/driver/bigquery**: add schema to reader for BigQuery (#2050)
+- **c/driver/postgresql**: Implement consuming a PGresult via the copy reader (#2029)
+- **csharp/src/Drivers/BigQuery**: add support for configurable query timeouts (#2043)
+- **go/adbc/driver/snowflake**: use vectorized scanner for bulk ingest (#2025)
+- **c**: Add BigQuery library to Meson build system (#1994)
+- **c**: Add pkgconfig support to Meson build system (#1992)
+- **c/driver/postgresql**: FIXED_SIZED_LIST Writer support (#1975)
+- **go/adbc/driver**: add support for Google BigQuery (#1722)
+- **c/driver/postgresql**: Implement LIST/LARGE_LIST Writer (#1962)
+- **c/driver/postgresql**: Read/write support for TIME64[us] (#1960)
+- **c/driver/postgresql**: UInt(8/16/32) Writer (#1961)
+
+### Refactor
+
+- **c/driver/framework**: Separate C/C++ conversions and error handling into minimal "base" framework (#2090)
+- **c/driver/framework**: Remove fmt as required dependency of the driver framework (#2081)
+- **c**: Updated include/install paths for adbc.h (#1965)
+- **c/driver/postgresql**: Factory func for CopyWriter construction (#1998)
+- **c**: Check MakeArray/Batch Error codes with macro (#1959)
+
+### Fix
+
+- **go/adbc/driver/snowflake**: Bump gosnowflake to fix context error (#2091)
+- **c/driver/postgresql**: Fix ingest of streams with zero arrays (#2073)
+- **csharp/src/Drivers/BigQuery**: update BigQuery test cases (#2048)
+- **ci**: Pin r-lib actions as a workaround for latest action updates (#2051)
+- **csharp/src/Drivers/BigQuery**: update BigQuery documents (#2047)
+- **go/adbc/driver/snowflake**: split files properly after reaching targetSize on ingestion (#2026)
+- **c/driver/postgresql**: Ensure schema ordering is consisent and respects case sensitivity of table names (#2028)
+- **docs**: update broken link (#2016)
+- **docs**: correct snowflake options for bulk ingest (#2004)
+- **go/adbc/driver/flightsql**: propagate headers in GetObjects (#1996)
+- **c/driver/postgresql**: Fix compiler warning on gcc14 (#1990)
+- **r/adbcdrivermanager**: Ensure that class of object is checked before calling R_ExternalPtrAddrFn (#1989)
+- **ci**: update website_build.sh for new versioning scheme (#1972)
+- **dev/release**: update C# <VersionSuffix> tag (#1973)
+- **c/vendor/nanoarrow**: Fix -Wreorder warning (#1966)
+
+## ADBC Libraries 15 (2024-11-08)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.3.0
+- C#: 0.15.0
+- Java: 0.15.0
+- R: 0.15.0
+- Rust: 0.15.0
+
+### Feat
+
+- **c/driver/postgresql**: Enable basic connect/query workflow for Redshift (#2219)
+- **rust/drivers/datafusion**: add support for bulk ingest (#2279)
+- **csharp/src/Drivers/Apache**: convert Double to Float for Apache Spark on scalar conversion (#2296)
+- **go/adbc/driver/snowflake**: update to the latest 1.12.0 gosnowflake driver (#2298)
+- **csharp/src/Drivers/BigQuery**: support max stream count setting when creating read session (#2289)
+- **rust/drivers**: adbc driver for datafusion (#2267)
+- **go/adbc/driver/snowflake**: improve GetObjects performance and semantics (#2254)
+- **c**: Implement ingestion and testing for float16, string_view, and binary_view (#2234)
+- **r**: Add R BigQuery driver wrapper (#2235)
+- **csharp/src/Drivers/Apache/Spark**: add request_timeout_ms option to allow longer HTTP request length (#2218)
+- **go/adbc/driver/snowflake**: add support for a client config file (#2197)
+- **csharp/src/Client**: Additional parameter support for DbCommand (#2195)
+- **csharp/src/Drivers/Apache/Spark**: add option to ignore TLS/SSL certificate exceptions (#2188)
+- **csharp/src/Drivers/Apache/Spark**: Perform scalar data type conversion for Spark over HTTP (#2152)
+- **csharp/src/Drivers/Apache/Spark**: Azure HDInsight Spark Documentation (#2164)
+- **c/driver/postgresql**: Implement ingestion of list types for PostgreSQL (#2153)
+- **csharp/src/Drivers/Apache/Spark**: poc - Support for Apache Spark over HTTP (non-Arrow) (#2018)
+- **c/driver/postgresql**: add `arrow.opaque` type metadata (#2122)
+
+### Fix
+
+- **csharp/src/Drivers/Apache**: fix float data type handling for tests on Databricks Spark (#2283)
+- **go/adbc/driver/internal/driverbase**: proper unmarshalling for ConstraintColumnNames (#2285)
+- **csharp/src/Drivers/Apache**: fix to workaround concurrency issue (#2282)
+- **csharp/src/Drivers/Apache**: correctly handle empty response and add Client tests (#2275)
+- **csharp/src/Drivers/Apache**: remove interleaved async look-ahead code (#2273)
+- **c/driver_manager**: More robust error reporting for errors that occur before AdbcDatabaseInit() (#2266)
+- **rust**: implement database/connection constructors without options (#2242)
+- **csharp/src/Drivers**: update System.Text.Json to version 8.0.5 because of known vulnerability (#2238)
+- **csharp/src/Drivers/Apache/Spark**: correct batch handling for the HiveServer2Reader (#2215)
+- **go/adbc/driver/snowflake**: call GetObjects with null catalog at catalog depth (#2194)
+- **csharp/src/Drivers/Apache/Spark**: correct BatchSize implementation for base reader (#2199)
+- **csharp/src/Drivers/Apache/Spark**: correct precision/scale handling with zeros in fractional portion (#2198)
+- **csharp/src/Drivers/BigQuery**: Fixed GBQ driver issue when results.TableReference is null (#2165)
+- **go/adbc/driver/snowflake**: fix setting database and schema context after initial connection (#2169)
+- **csharp/src/Drivers/Interop/Snowflake**: add test to demonstrate DEFAULT_ROLE behavior (#2151)
+- **c/driver/postgresql**: Improve error reporting for queries that error before the COPY header is sent (#2134)
+
+### Refactor
+
+- **c/driver/postgresql**: cleanups for result_helper signatures (#2261)
+- **c/driver/postgresql**: Use GetObjectsHelper from framework to build objects (#2189)
+- **csharp/src/Drivers/Apache/Spark**: use UTF8 string for data conversion, instead of .NET String (#2192)
+- **c/driver/postgresql**: Use Status for error handling in BindStream (#2187)
+- **c/driver/postgresql**: Use Status instead of AdbcStatusCode/AdbcError in result helper (#2178)
+- **c/driver**: Use non-objects framework components in Postgres driver (#2166)
+- **c/driver/postgresql**: Use copy writer in BindStream for parameter binding (#2157)

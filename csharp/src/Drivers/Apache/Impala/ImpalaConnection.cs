@@ -15,7 +15,9 @@
 * limitations under the License.
 */
 
+using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Apache.Arrow.Adbc.Drivers.Apache.Hive2;
 using Apache.Arrow.Ipc;
@@ -26,26 +28,36 @@ using Thrift.Transport;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Impala
 {
-    public class ImpalaConnection : HiveServer2Connection
+    internal class ImpalaConnection : HiveServer2Connection
     {
+        // https://impala.apache.org/docs/build/html/topics/impala_ports.html
+        // https://impala.apache.org/docs/build/html/topics/impala_client.html
+        private const int DefaultSocketTransportPort = 21050;
+        private const int DefaultHttpTransportPort = 28000;
+
         internal ImpalaConnection(IReadOnlyDictionary<string, string> properties)
             : base(properties)
         {
         }
 
-        protected override ValueTask<TProtocol> CreateProtocolAsync()
+        protected override TTransport CreateTransport()
         {
-            string hostName = properties["HostName"];
+            string hostName = Properties["HostName"];
             string? tmp;
-            int port = 21050; // default?
-            if (properties.TryGetValue("Port", out tmp))
+            int port = DefaultSocketTransportPort; // default?
+            if (Properties.TryGetValue("Port", out tmp))
             {
                 port = int.Parse(tmp);
             }
 
             TConfiguration config = new TConfiguration();
             TTransport transport = new ThriftSocketTransport(hostName, port, config);
-            return new ValueTask<TProtocol>(new TBinaryProtocol(transport));
+            return transport;
+        }
+
+        protected override Task<TProtocol> CreateProtocolAsync(TTransport transport, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<TProtocol>(new TBinaryProtocol(transport));
         }
 
         protected override TOpenSessionReq CreateSessionRequest()
@@ -72,5 +84,9 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Impala
         }
 
         public override Schema GetTableSchema(string? catalog, string? dbSchema, string tableName) => throw new System.NotImplementedException();
+
+        internal override SchemaParser SchemaParser { get; } = new HiveServer2SchemaParser();
+
+        internal override IArrowArrayStream NewReader<T>(T statement, Schema schema) => new HiveServer2Reader(statement, schema, dataTypeConversion: DataTypeConversion);
     }
 }

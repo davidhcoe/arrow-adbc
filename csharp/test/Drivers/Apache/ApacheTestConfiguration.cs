@@ -27,11 +27,40 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache
         [JsonPropertyName("port")]
         public string Port { get; set; } = string.Empty;
 
-        [JsonPropertyName("token"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-        public string Token { get; set; } = string.Empty;
-
         [JsonPropertyName("path"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public string Path { get; set; } = string.Empty;
 
+        [JsonPropertyName("username"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string Username { get; set; } = string.Empty;
+
+        [JsonPropertyName("password"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string Password { get; set; } = string.Empty;
+
+        [JsonPropertyName("auth_type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string AuthType { get; set; } = string.Empty;
+
+        [JsonPropertyName("uri"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string Uri { get; set; } = string.Empty;
+
+        [JsonPropertyName("batch_size"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string BatchSize { get; set; } = string.Empty;
+
+        [JsonPropertyName("polltime_ms"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string PollTimeMilliseconds { get; set; } = string.Empty;
+
+        [JsonPropertyName("connect_timeout_ms"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string ConnectTimeoutMilliseconds { get; set; } = string.Empty;
+
+        [JsonPropertyName("query_timeout_s"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string QueryTimeoutSeconds { get; set; } = string.Empty;
+
+        [JsonPropertyName("type"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string Type { get; set; } = string.Empty;
+
+        [JsonPropertyName("data_type_conv"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string DataTypeConversion { get; set; } = string.Empty;
+
+        [JsonPropertyName("tls_options"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public string TlsOptions { get; set; } = string.Empty;
     }
 }

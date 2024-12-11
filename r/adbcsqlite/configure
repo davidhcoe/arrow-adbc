@@ -22,7 +22,8 @@
 # ADBC repo into this package. If the file doesn't exist, we're installing
 # from a pre-built tarball.
 if [ -f bootstrap.R ]; then
-  $R_HOME/bin/Rscript bootstrap.R --vanilla
+  echo "Running bootstrap.R..."
+  "$R_HOME/bin/Rscript" bootstrap.R --vanilla
 fi
 
 # Include and library flags
@@ -77,14 +78,3 @@ sed \
   -e "s|@libs@|$PKG_LIBS|" \
   -e "s|@objects@|$OBJECTS|" \
   src/Makevars.in > src/Makevars
-
-
-if [ -f "src/adbc.h" ]; then
-  echo "Found vendored ADBC"
-  exit 0
-fi
-
-
-echo "Vendored ADBC SQLite driver was not found."
-echo "This source package was probably built incorrectly and it's probably not your fault"
-exit 1

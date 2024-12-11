@@ -39,13 +39,13 @@ import (
 	driver "github.com/apache/arrow-adbc/go/adbc/driver/flightsql"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	"github.com/apache/arrow-adbc/go/adbc/validation"
-	"github.com/apache/arrow/go/v17/arrow"
-	"github.com/apache/arrow/go/v17/arrow/array"
-	"github.com/apache/arrow/go/v17/arrow/flight"
-	"github.com/apache/arrow/go/v17/arrow/flight/flightsql"
-	"github.com/apache/arrow/go/v17/arrow/flight/flightsql/schema_ref"
-	flightproto "github.com/apache/arrow/go/v17/arrow/flight/gen/flight"
-	"github.com/apache/arrow/go/v17/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/flight"
+	"github.com/apache/arrow-go/v18/arrow/flight/flightsql"
+	"github.com/apache/arrow-go/v18/arrow/flight/flightsql/schema_ref"
+	flightproto "github.com/apache/arrow-go/v18/arrow/flight/gen/flight"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/exp/maps"
@@ -585,12 +585,12 @@ func (srv *IncrementalPollTestServer) PollFlightInfo(ctx context.Context, desc *
 		if query.query == "unavailable" {
 			testCase = unavailableCase
 		} else {
-			return nil, status.Errorf(codes.Unimplemented, fmt.Sprintf("Invalid case %s", query.query))
+			return nil, status.Errorf(codes.Unimplemented, "Invalid case %s", query.query)
 		}
 	}
 
 	if testCase.differentRetryDescriptor && progress != int64(query.nextIndex) {
-		return nil, status.Errorf(codes.InvalidArgument, fmt.Sprintf("Used wrong retry descriptor, expected %d but got %d", query.nextIndex, progress))
+		return nil, status.Errorf(codes.InvalidArgument, "Used wrong retry descriptor, expected %d but got %d", query.nextIndex, progress)
 	}
 
 	if query.unavailable {
@@ -645,7 +645,7 @@ func (srv *IncrementalPollTestServer) PollFlightInfoStatement(ctx context.Contex
 
 	testCase, ok := srv.testCases[query.GetQuery()]
 	if !ok {
-		return nil, status.Errorf(codes.Unimplemented, fmt.Sprintf("Invalid case %s", query.GetQuery()))
+		return nil, status.Errorf(codes.Unimplemented, "Invalid case %s", query.GetQuery())
 	}
 
 	srv.queries[queryId] = &IncrementalQuery{
@@ -662,7 +662,7 @@ func (srv *IncrementalPollTestServer) PollFlightInfoPreparedStatement(ctx contex
 
 	testCase, ok := srv.testCases[req]
 	if !ok {
-		return nil, status.Errorf(codes.Unimplemented, fmt.Sprintf("Invalid case %s", req))
+		return nil, status.Errorf(codes.Unimplemented, "Invalid case %s", req)
 	}
 
 	srv.mu.Lock()

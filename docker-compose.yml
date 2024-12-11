@@ -30,10 +30,23 @@ services:
     command: |
       /adbc/ci/scripts/csharp_pack.sh /adbc
 
+  ################################ C/C++ #######################################
+
+  # Build/test with latest Clang
+  cpp-clang-latest:
+    build:
+      context: .
+      dockerfile: ci/docker/cpp-clang-latest.dockerfile
+      args:
+        VCPKG: ${VCPKG}
+    volumes:
+      - .:/adbc:delegated
+    command: "bash -c 'export PATH=$PATH:/opt/go/bin CC=$(which clang) CXX=$(which clang++) && git config --global --add safe.directory /adbc && /adbc/ci/scripts/cpp_build.sh /adbc /adbc/build && env BUILD_ALL=0 BUILD_DRIVER_MANAGER=1 BUILD_DRIVER_SQLITE=1 /adbc/ci/scripts/cpp_test.sh /adbc/build'"
+
   ############################ Documentation ###################################
 
   docs:
-    image: condaforge/mambaforge:latest
+    image: condaforge/miniforge3:latest
     volumes:
       - .:/adbc:delegated
     environment:
@@ -66,6 +79,20 @@ services:
       - .:/adbc:delegated
     command: "/bin/bash -c '/adbc/ci/scripts/python_conda_test.sh /adbc /adbc/build'"
 
+  python-debug:
+    image: ${REPO}:${ARCH}-python-${PYTHON}-debug-adbc
+    build:
+      context: .
+      cache_from:
+        - ${REPO}:${ARCH}-python-${PYTHON}-debug-adbc
+      dockerfile: ci/docker/python-debug.dockerfile
+      args:
+        ARCH: ${ARCH}
+        GO: ${GO}
+    volumes:
+      - .:/adbc:delegated
+    command: /adbc/ci/docker/python-debug.sh
+
   ############################ Python sdist ##################################
 
   python-sdist:
@@ -94,7 +121,10 @@ services:
 
   ############################ Python wheels ##################################
 
-  python-wheel-manylinux:
+  # We build on a different image to use an older base image/glibc, then
+  # relocate on a separate image so that we can use a newer docker for cibuildwheel
+
+  python-wheel-manylinux-build:
     image: ${REPO}:${ARCH}-python-${PYTHON}-wheel-manylinux-${MANYLINUX}-vcpkg-${VCPKG}-adbc
     build:
       context: .
@@ -109,13 +139,27 @@ services:
         REPO: ${REPO}
         VCPKG: ${VCPKG}
     volumes:
+      - .:/adbc
+    # Must set safe.directory so go/miniver won't error when calling git
+    command: "'git config --global --add safe.directory /adbc && /adbc/ci/scripts/python_wheel_unix_build.sh ${ARCH} /adbc /adbc/build'"
+
+  python-wheel-manylinux-relocate:
+    image: ${REPO}:adbc-python-${PYTHON}-wheel-relocate
+    platform: ${PLATFORM}
+    build:
+      context: .
+      cache_from:
+        - ${REPO}:adbc-python-${PYTHON}-wheel-relocate
+      dockerfile: ci/docker/python-wheel-manylinux-relocate.dockerfile
+    volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - .:/adbc
-    # Must set safe.directory so miniver won't error when calling git
-    command: "'git config --global --add safe.directory /adbc && git config --global --get safe.directory && /adbc/ci/scripts/python_wheel_unix_build.sh ${ARCH} /adbc /adbc/build'"
+    # Must set safe.directory so go/miniver won't error when calling git
+    command: "bash -c 'git config --global --add safe.directory /adbc && python -m venv /venv && source /venv/bin/activate && /adbc/ci/scripts/python_wheel_unix_relocate.sh ${ARCH} /adbc /adbc/build'"
 
   python-wheel-manylinux-test:
     image: ${ARCH}/python:${PYTHON}-slim
+    platform: ${PLATFORM}
     volumes:
       - .:/adbc:delegated
     command: /adbc/ci/scripts/python_wheel_unix_test.sh /adbc

@@ -67,7 +67,7 @@ Usage
 =====
 
 To connect to a Snowflake database you can supply the "uri" parameter when
-constructing the :cpp::class:`AdbcDatabase`.
+constructing the :c:struct:`AdbcDatabase`.
 
 .. tab-set::
 
@@ -76,7 +76,7 @@ constructing the :cpp::class:`AdbcDatabase`.
 
       .. code-block:: cpp
 
-         #include "adbc.h"
+         #include "arrow-adbc/adbc.h"
 
          // Ignoring error handling
          struct AdbcDatabase database;
@@ -163,7 +163,7 @@ Authentication
 Snowflake requires some form of authentication to be enabled. By default
 it will attempt to use Username/Password authentication. The username and
 password can be provided in the URI or via the ``username`` and ``password``
-options to the :cpp:class:`AdbcDatabase`.
+options to the :c:struct:`AdbcDatabase`.
 
 Alternately, other types of authentication can be specified and customized.
 See "Client Options" below for details on all the options.
@@ -175,7 +175,7 @@ Snowflake supports `single sign-on
 <https://docs.snowflake.com/en/user-guide/admin-security-fed-auth-overview>`_.
 If your account has been configured with SSO, it can be used with the
 Snowflake driver by setting the following options when constructing the
-:cpp:class:`AdbcDatabase`:
+:c:struct:`AdbcDatabase`:
 
 - ``adbc.snowflake.sql.account``: your Snowflake account.  (For example, if
   you log in to ``https://foobar.snowflakecomputing.com``, then your account
@@ -283,25 +283,25 @@ The following informal benchmark demonstrates expected performance using default
       Scale Factor 10 (60M Rows): 45s
 
 The default settings for ingestion should be well balanced for many real-world configurations. If required, performance
-and resource usage may be tuned with the following options on the :cpp:class:`AdbcStatement` object:
+and resource usage may be tuned with the following options on the :c:struct:`AdbcStatement` object:
 
-``adbc.snowflake.rpc.ingest_writer_concurrency``
+``adbc.snowflake.statement.ingest_writer_concurrency``
     Number of Parquet files to write in parallel. Default attempts to maximize workers based on logical cores detected,
     but may need to be adjusted if running in a constrained environment. If set to 0, default value is used. Cannot be negative.
 
-``adbc.snowflake.rpc.ingest_upload_concurrency``
+``adbc.snowflake.statement.ingest_upload_concurrency``
     Number of Parquet files to upload in parallel. Greater concurrency can smooth out TCP congestion and help make
     use of available network bandwith, but will increase memory utilization. Default is 8. If set to 0, default value is used.
     Cannot be negative.
 
-``adbc.snowflake.rpc.ingest_copy_concurrency``
+``adbc.snowflake.statement.ingest_copy_concurrency``
     Maximum number of COPY operations to run concurrently. Bulk ingestion performance is optimized by executing COPY
     queries as files are still being uploaded. Snowflake COPY speed scales with warehouse size, so smaller warehouses
     may benefit from setting this value higher to ensure long-running COPY queries do not block newly uploaded files
     from being loaded. Default is 4. If set to 0, only a single COPY query will be executed as part of ingestion,
     once all files have finished uploading. Cannot be negative.
 
-``adbc.snowflake.rpc.ingest_target_file_size``
+``adbc.snowflake.statement.ingest_target_file_size``
     Approximate size of Parquet files written during ingestion. Actual size will be slightly larger, depending on
     size of footer/metadata. Default is 10 MB. If set to 0, file size has no limit. Cannot be negative.
 
@@ -319,7 +319,7 @@ returned to the client in the order of the endpoints.
 
 To manage the performance of result fetching there are two options to control
 buffering and concurrency behavior. These options are only available to be set
-on the :cpp:class:`AdbcStatement` object:
+on the :c:struct:`AdbcStatement` object:
 
 ``adbc.rpc.result_queue_size``
     The number of batches to queue in the record reader. Defaults to 200.
@@ -446,6 +446,10 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
     disabled by setting this to ``true``. Value should be either ``true``
     or ``false``.
 
+``adbc.snowflake.sql.client_option.config_file``
+    Specifies the location of the client configuration JSON file. See the
+    [Snowflake Go docs](https://github.com/snowflakedb/gosnowflake/blob/a26ac8a1b9a0dda854ac5db9c2c145f79d5ac4c0/doc.go#L130) for more details.
+
 ``adbc.snowflake.sql.client_option.tracing``
     Set the logging level
 
@@ -469,7 +473,7 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
 Metadata
 --------
 
-When calling :cpp:func:`AdbcConnectionGetTableSchema`, the returned Arrow Schema
+When calling :c:func:`AdbcConnectionGetTableSchema`, the returned Arrow Schema
 will contain metadata on each field:
 
 ``DATA_TYPE``

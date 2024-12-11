@@ -44,6 +44,9 @@ defaults:
 jobs:
   native-unix:
     uses: ./.github/workflows/native-unix.yml
+    permissions:
+      contents: read
+      id-token: write
 
   rust:
     needs: [native-unix]
@@ -67,10 +70,37 @@ jobs:
         run: |
           rustup toolchain install stable --no-self-update
           rustup default stable
+      - name: Get required Go version
+        run: |
+          (. ../.env && echo "GO_VERSION=${GO}") >> $GITHUB_ENV
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "${{ env.GO_VERSION }}"
+          check-latest: true
+          cache: true
+          cache-dependency-path: go/adbc/go.sum
+      - name: Install Protoc
+        if: runner.os == 'Linux'
+        run: |
+          curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-linux-$(uname -m).zip" -o protoc.zip
+          unzip protoc.zip -d $HOME/.local
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install Protoc
+        if: runner.os == 'macOS'
+        run: |
+          curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-osx-universal_binary.zip" -o protoc.zip
+          unzip "protoc.zip" -d $HOME/.local
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v4
         with:
           name: driver-manager-${{ matrix.os }}
-          path: ${{ github.workspace }}/build
+          path: "~"
+      - name: Untar artifacts
+        shell: bash -l {0}
+        run: |
+          cd
+          mkdir -p ${{ github.workspace }}/build
+          tar xvf ~/local.tgz -C ${{ github.workspace }}/build --strip-components=1
       - name: Set dynamic linker path
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -83,10 +113,16 @@ jobs:
         if: matrix.os == 'macos-13'
         run: |
           echo "DYLD_LIBRARY_PATH=/usr/local/opt/sqlite/lib:${{ github.workspace }}/build/lib:$DYLD_LIBRARY_PATH" >> "$GITHUB_ENV"
+      - name: Set search dir for Snowflake Go lib
+        run: echo "ADBC_SNOWFLAKE_GO_LIB_DIR=${{ github.workspace }}/build/lib" >> "$GITHUB_ENV"
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -Dwarnings
       - name: Test
         run: cargo test --workspace --all-targets --all-features
+        # env:
+        # ADBC_SNOWFLAKE_TESTS: 1
+        # ADBC_SNOWFLAKE_URI: ${{ secrets.SNOWFLAKE_URI }}
+        # ADBC_SNOWFLAKE_SQL_DB: ADBC_TESTING
       - name: Doctests
         run: cargo test --workspace --doc --all-features
       - name: Check docs

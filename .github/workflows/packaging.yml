@@ -23,7 +23,6 @@ on:
       - main
     paths:
       - ".env"
-      - "adbc.h"
       - "c/**"
       - "ci/**"
       - "glib/**"
@@ -133,8 +132,9 @@ jobs:
           popd
 
       - name: Upload Go binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
+          name: go-${{ matrix.os }}
           retention-days: 7
           path: |
             adbc/go/adbc/pkg/libadbc_driver_flightsql.*
@@ -168,13 +168,15 @@ jobs:
           echo "schedule: ${{ github.event.schedule }}" >> $GITHUB_STEP_SUMMARY
           echo "ref: ${{ github.ref }}" >> $GITHUB_STEP_SUMMARY
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
+          pattern: go-*
           path: adbc/go/adbc/pkg
+          merge-multiple: true
 
       - name: Copy Go binaries
         run: |
-          pushd adbc/go/adbc/pkg/artifact
+          pushd adbc/go/adbc/pkg/
           cp *.dll ../
           cp *.so ../
           cp *.dylib ../
@@ -244,7 +246,7 @@ jobs:
             docs.tgz
 
   java:
-    name: "Java 1.8"
+    name: "Java 11"
     runs-on: ubuntu-latest
     needs:
       - source
@@ -518,7 +520,6 @@ jobs:
 
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-only-tar-bz2: false
           use-mamba: true
@@ -559,13 +560,15 @@ jobs:
       fail-fast: false
       matrix:
         arch: ["amd64", "arm64v8"]
-        manylinux_version: ["2014"]
         is_pr:
           - ${{ startsWith(github.ref, 'refs/pull/') }}
         exclude:
           # Don't run arm64v8 build on PRs since the build is excessively slow
           - arch: arm64v8
             is_pr: true
+        include:
+          - {arch: amd64, platform: linux/amd64}
+          - {arch: arm64v8, platform: linux/arm64/v8}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -596,12 +599,16 @@ jobs:
       - name: Build wheel
         env:
           ARCH: ${{ matrix.arch }}
-          MANYLINUX: ${{ matrix.manylinux_version }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           pushd adbc
           docker compose run \
             -e SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION \
-            python-wheel-manylinux
+            python-wheel-manylinux-build
+
+          docker compose run \
+            -e SETUPTOOLS_SCM_PRETEND_VERSION=$VERSION \
+            python-wheel-manylinux-relocate
           popd
 
       - name: Archive wheels
@@ -610,24 +617,17 @@ jobs:
           name: python-${{ matrix.arch }}-manylinux${{ matrix.manylinux_version }}
           retention-days: 7
           path: |
+            adbc/python/adbc_driver_bigquery/repaired_wheels/*.whl
             adbc/python/adbc_driver_flightsql/repaired_wheels/*.whl
             adbc/python/adbc_driver_manager/repaired_wheels/*.whl
             adbc/python/adbc_driver_postgresql/repaired_wheels/*.whl
             adbc/python/adbc_driver_sqlite/repaired_wheels/*.whl
             adbc/python/adbc_driver_snowflake/repaired_wheels/*.whl
 
-      - name: Test wheel 3.8
-        env:
-          ARCH: ${{ matrix.arch }}
-          MANYLINUX: ${{ matrix.manylinux_version }}
-        run: |
-          pushd adbc
-          env PYTHON=3.8 docker compose run python-wheel-manylinux-test
-
       - name: Test wheel 3.9
         env:
           ARCH: ${{ matrix.arch }}
-          MANYLINUX: ${{ matrix.manylinux_version }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           pushd adbc
           env PYTHON=3.9 docker compose run python-wheel-manylinux-test
@@ -635,7 +635,7 @@ jobs:
       - name: Test wheel 3.10
         env:
           ARCH: ${{ matrix.arch }}
-          MANYLINUX: ${{ matrix.manylinux_version }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           pushd adbc
           env PYTHON=3.10 docker compose run python-wheel-manylinux-test
@@ -643,7 +643,7 @@ jobs:
       - name: Test wheel 3.11
         env:
           ARCH: ${{ matrix.arch }}
-          MANYLINUX: ${{ matrix.manylinux_version }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           pushd adbc
           env PYTHON=3.11 docker compose run python-wheel-manylinux-test
@@ -651,7 +651,7 @@ jobs:
       - name: Test wheel 3.12
         env:
           ARCH: ${{ matrix.arch }}
-          MANYLINUX: ${{ matrix.manylinux_version }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
           pushd adbc
           env PYTHON=3.12 docker compose run python-wheel-manylinux-test
@@ -728,11 +728,10 @@ jobs:
         if: matrix.arch == 'amd64'
         run: |
           pushd adbc
-          sudo ci/scripts/install_python.sh macos 3.8
           sudo ci/scripts/install_python.sh macos 3.9
           popd
 
-      - name: Install Python (AMD64 only)
+      - name: Install Python
         run: |
           pushd adbc
           sudo ci/scripts/install_python.sh macos 3.10
@@ -748,6 +747,7 @@ jobs:
           $PYTHON -m venv build-env
           source build-env/bin/activate
           ./ci/scripts/python_wheel_unix_build.sh $ARCH $(pwd) $(pwd)/build
+          ./ci/scripts/python_wheel_unix_relocate.sh $ARCH $(pwd) $(pwd)/build
           popd
 
       - name: Archive wheels
@@ -756,22 +756,12 @@ jobs:
           name: python-${{ matrix.arch }}-macos
           retention-days: 7
           path: |
+            adbc/python/adbc_driver_bigquery/repaired_wheels/*.whl
             adbc/python/adbc_driver_flightsql/repaired_wheels/*.whl
             adbc/python/adbc_driver_manager/repaired_wheels/*.whl
             adbc/python/adbc_driver_postgresql/repaired_wheels/*.whl
             adbc/python/adbc_driver_sqlite/repaired_wheels/*.whl
             adbc/python/adbc_driver_snowflake/repaired_wheels/*.whl
-
-      - name: Test wheel 3.8
-        if: matrix.arch == 'amd64'
-        run: |
-          pushd adbc
-
-          /Library/Frameworks/Python.framework/Versions/3.8/bin/python3.8 -m venv test-env-38
-          source test-env-38/bin/activate
-          export PYTHON_VERSION=3.8
-          ./ci/scripts/python_wheel_unix_test.sh $(pwd)
-          deactivate
 
       - name: Test wheel 3.9
         if: matrix.arch == 'amd64'
@@ -822,7 +812,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python_version: ["3.9", "3.10", "3.11", "3.12"]
+        python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     env:
       PYTHON_VERSION: "${{ matrix.python_version }}"
       # Where to install vcpkg
@@ -905,6 +895,7 @@ jobs:
           name: python${{ matrix.python_version }}-windows
           retention-days: 7
           path: |
+            adbc/python/adbc_driver_bigquery/repaired_wheels/*.whl
             adbc/python/adbc_driver_flightsql/repaired_wheels/*.whl
             adbc/python/adbc_driver_manager/repaired_wheels/*.whl
             adbc/python/adbc_driver_postgresql/repaired_wheels/*.whl
@@ -964,6 +955,7 @@ jobs:
           name: python-sdist
           retention-days: 7
           path: |
+            adbc/python/adbc_driver_bigquery/dist/*.tar.gz
             adbc/python/adbc_driver_flightsql/dist/*.tar.gz
             adbc/python/adbc_driver_manager/dist/*.tar.gz
             adbc/python/adbc_driver_postgresql/dist/*.tar.gz
@@ -1056,7 +1048,6 @@ jobs:
           path: conda-packages
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-only-tar-bz2: false
           use-mamba: true

@@ -22,7 +22,6 @@ on:
     branches:
       - main
     paths:
-      - "adbc.h"
       - "c/**"
       - "ci/**"
       - "go/**"
@@ -30,7 +29,6 @@ on:
       - ".github/workflows/integration.yml"
   push:
     paths:
-      - "adbc.h"
       - "c/**"
       - "ci/**"
       - "go/**"
@@ -69,7 +67,6 @@ jobs:
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-only-tar-bz2: false
           use-mamba: true
@@ -125,7 +122,6 @@ jobs:
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-only-tar-bz2: false
           use-mamba: true
@@ -203,7 +199,6 @@ jobs:
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-only-tar-bz2: false
           use-mamba: true
@@ -325,7 +320,6 @@ jobs:
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
       - uses: conda-incubator/setup-miniconda@v3
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-only-tar-bz2: false
           use-mamba: true

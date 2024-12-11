@@ -143,6 +143,37 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
         }
 
         // <summary>
+        /// Validates if the client can connect to a live server and execute a parameterized query.
+        /// </summary>
+        [SkippableFact, Order(4)]
+        public void CanClientExecuteParameterizedQuery()
+        {
+            SnowflakeTestConfiguration testConfiguration = Utils.LoadTestConfiguration<SnowflakeTestConfiguration>(SnowflakeTestingUtils.SNOWFLAKE_TEST_CONFIG_VARIABLE);
+            testConfiguration.Query = "SELECT ? as A, ? as B, ? as C, * FROM (SELECT column1 FROM (VALUES (1), (2), (3))) WHERE column1 < ?";
+            testConfiguration.ExpectedResultsCount = 1;
+
+            using (Adbc.Client.AdbcConnection adbcConnection = GetSnowflakeAdbcConnectionUsingConnectionString(testConfiguration))
+            {
+                Tests.ClientTests.CanClientExecuteQuery(adbcConnection, testConfiguration, command =>
+                {
+                    DbParameter CreateParameter(DbType dbType, object value)
+                    {
+                        DbParameter result = command.CreateParameter();
+                        result.DbType = dbType;
+                        result.Value = value;
+                        return result;
+                    }
+
+                    // TODO: Add tests for decimal and time once supported by the driver or gosnowflake
+                    command.Parameters.Add(CreateParameter(DbType.Int32, 2));
+                    command.Parameters.Add(CreateParameter(DbType.String, "text"));
+                    command.Parameters.Add(CreateParameter(DbType.Double, 2.5));
+                    command.Parameters.Add(CreateParameter(DbType.Int32, 2));
+                });
+            }
+        }
+
+        // <summary>
         /// Validates if the client can connect to a live server
         /// and parse the results.
         /// </summary>
