@@ -34,7 +34,12 @@ namespace Apache.Arrow.Adbc.Client
         /// <param name="schema">The Arrow schema</param>
         /// <param name="adbcStatement">The AdbcStatement to use</param>
         /// <exception cref="ArgumentNullException"></exception>
-        public static DataTable ConvertArrowSchema(Schema schema, AdbcStatement adbcStatement, DecimalBehavior decimalBehavior, StructBehavior structBehavior)
+        public static DataTable ConvertArrowSchema(
+            Schema schema,
+            AdbcStatement adbcStatement,
+            DecimalBehavior decimalBehavior,
+            StructBehavior structBehavior,
+            TimeStampBehavior timeStampBehavior)
         {
             if (schema == null)
                 throw new ArgumentNullException(nameof(schema));
@@ -62,7 +67,7 @@ namespace Apache.Arrow.Adbc.Client
                 row[SchemaTableColumn.ColumnOrdinal] = columnOrdinal;
                 row[SchemaTableColumn.AllowDBNull] = f.IsNullable;
                 row[SchemaTableColumn.ProviderType] = SchemaConverter.GetArrowTypeBasedOnRequestedBehavior(f.DataType, structBehavior);
-                Type t = ConvertArrowType(f, decimalBehavior, structBehavior);
+                Type t = ConvertArrowType(f, decimalBehavior, structBehavior, timeStampBehavior);
 
                 row[SchemaTableColumn.DataType] = t;
 
@@ -122,7 +127,7 @@ namespace Apache.Arrow.Adbc.Client
         /// </summary>
         /// <param name="f"></param>
         /// <returns></returns>
-        public static Type ConvertArrowType(Field f, DecimalBehavior decimalBehavior, StructBehavior structBehavior)
+        public static Type ConvertArrowType(Field f, DecimalBehavior decimalBehavior, StructBehavior structBehavior, TimeStampBehavior timeStampBehavior)
         {
             switch (f.DataType.TypeId)
             {
@@ -131,11 +136,14 @@ namespace Apache.Arrow.Adbc.Client
                     IArrowType valueType = list.ValueDataType;
                     return GetArrowArrayType(valueType);
                 default:
-                    return GetArrowType(f, decimalBehavior, structBehavior);
+                    return GetArrowType(f, decimalBehavior, structBehavior, timeStampBehavior);
             }
         }
 
-        public static Type GetArrowType(Field f, DecimalBehavior decimalBehavior, StructBehavior structBehavior)
+        public static Type GetArrowType(Field f,
+            DecimalBehavior decimalBehavior,
+            StructBehavior structBehavior,
+            TimeStampBehavior timeStampBehavior)
         {
             switch (f.DataType.TypeId)
             {
@@ -197,7 +205,7 @@ namespace Apache.Arrow.Adbc.Client
                     return  structBehavior == StructBehavior.JsonString ? typeof(string) : typeof(Dictionary<string, object?>);
 
                 case ArrowTypeId.Timestamp:
-                    return typeof(DateTimeOffset);
+                    return timeStampBehavior == TimeStampBehavior.DateTimeOffset ? typeof(DateTimeOffset) : typeof(DateTime);
 
                 case ArrowTypeId.Null:
                     return typeof(DBNull);

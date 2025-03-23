@@ -140,6 +140,9 @@ namespace Apache.Arrow.Adbc.Client
         /// </summary>
         public StructBehavior StructBehavior { get; set; } = StructBehavior.JsonString;
 
+        public TimeStampBehavior TimeStampBehavior { get; set; } = TimeStampBehavior.DateTimeOffset;
+
+
         public override int ConnectionTimeout
         {
             get
@@ -268,6 +271,9 @@ namespace Apache.Arrow.Adbc.Client
                             break;
                         case ConnectionStringKeywords.StructBehavior:
                             this.StructBehavior = (StructBehavior)Enum.Parse(typeof(StructBehavior), paramValue);
+                            break;
+                        case ConnectionStringKeywords.TimeStampBehavior:
+                            this.TimeStampBehavior = (TimeStampBehavior)Enum.Parse(typeof(TimeStampBehavior), paramValue);
                             break;
                         case ConnectionStringKeywords.CommandTimeout:
                             CommandTimeoutValue = ConnectionStringParser.ParseTimeoutValue(paramValue);

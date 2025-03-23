@@ -26,6 +26,7 @@ namespace Apache.Arrow.Adbc.Client
         public const string CommandTimeout = "adbccommandtimeout";
         public const string StructBehavior = "structbehavior";
         public const string DecimalBehavior = "decimalbehavior";
+        public const string TimeStampBehavior = "timestampbehavior";
     }
 
     internal class ConnectionStringParser

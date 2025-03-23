@@ -31,6 +31,12 @@ namespace Apache.Arrow.Adbc.Extensions
         Object
     }
 
+    public enum TimeStampConversionType
+    {
+        DateTimeOffset,
+        DateTime
+    }
+
     public static class IArrowArrayExtensions
     {
         /// <summary>
@@ -47,6 +53,11 @@ namespace Apache.Arrow.Adbc.Extensions
             return ValueAt(arrowArray, index, StructResultType.JsonString);
         }
 
+        public static object? ValueAt(this IArrowArray arrowArray, int index, StructResultType resultType)
+        {
+            return ValueAt(arrowArray, index, resultType, TimeStampConversionType.DateTimeOffset);
+        }
+
         /// <summary>
         /// Overloaded. Helper extension to get a value from the <see cref="IArrowArray"/> at the specified index.
         /// </summary>
@@ -59,7 +70,11 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <param name="resultType">
         /// T
         /// </param>
-        public static object? ValueAt(this IArrowArray arrowArray, int index, StructResultType resultType = StructResultType.JsonString)
+        public static object? ValueAt(
+            this IArrowArray arrowArray,
+            int index,
+            StructResultType resultType,
+            TimeStampConversionType timeStampConversionType)
         {
             if (arrowArray == null) throw new ArgumentNullException(nameof(arrowArray));
             if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
@@ -131,7 +146,14 @@ namespace Apache.Arrow.Adbc.Extensions
                     };
 #endif
                 case ArrowTypeId.Timestamp:
-                    return ((TimestampArray)arrowArray).GetTimestamp(index);
+                    switch (timeStampConversionType)
+                    {
+                        case TimeStampConversionType.DateTime:
+                            long? ticks = ((TimestampArray)arrowArray).GetValue(index);
+                            return ticks.HasValue ? new DateTime(ticks.Value, DateTimeKind.Utc) : null;
+                        default:
+                            return ((TimestampArray)arrowArray).GetTimestamp(index);
+                    }
                 case ArrowTypeId.UInt8:
                     return ((UInt8Array)arrowArray).GetValue(index);
                 case ArrowTypeId.UInt16:
@@ -158,7 +180,7 @@ namespace Apache.Arrow.Adbc.Extensions
                     return ((ListArray)arrowArray).GetSlicedValues(index);
                 case ArrowTypeId.Struct:
                     StructArray structArray = (StructArray)arrowArray;
-                    return resultType == StructResultType.JsonString ? SerializeToJson(structArray, index) : ParseStructArray(structArray, index);
+                    return resultType == StructResultType.JsonString ? SerializeToJson(structArray, index, timeStampConversionType) : ParseStructArray(structArray, index, timeStampConversionType);
 
                     // not covered:
                     // -- map array
@@ -181,6 +203,11 @@ namespace Apache.Arrow.Adbc.Extensions
             return GetValueConverter(arrayType, StructResultType.JsonString);
         }
 
+        public static Func<IArrowArray, int, object?> GetValueConverter(this IArrowType arrayType, StructResultType resultType)
+        {
+            return GetValueConverter(arrayType, StructResultType.JsonString);
+        }
+
         /// <summary>
         /// Overloaded. Helper extension to get a value from the <see cref="IArrowArray"/> at the specified index.
         /// </summary>
@@ -193,7 +220,10 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <param name="resultType">
         /// The return type of an item in a StructArray.
         /// </param>
-        public static Func<IArrowArray, int, object?> GetValueConverter(this IArrowType arrayType, StructResultType resultType)
+        public static Func<IArrowArray, int, object?> GetValueConverter(
+            this IArrowType arrayType,
+            StructResultType resultType,
+            TimeStampConversionType timeStampConversionType)
         {
             if (arrayType == null) throw new ArgumentNullException(nameof(arrayType));
 
@@ -293,8 +323,8 @@ namespace Apache.Arrow.Adbc.Extensions
                     return (array, index) => ((ListArray)array).GetSlicedValues(index);
                 case ArrowTypeId.Struct:
                     return resultType == StructResultType.JsonString ?
-                        (array, index) => SerializeToJson((StructArray)array, index) :
-                        (array, index) => ParseStructArray((StructArray)array, index);
+                        (array, index) => SerializeToJson((StructArray)array, index, timeStampConversionType) :
+                        (array, index) => ParseStructArray((StructArray)array, index, timeStampConversionType);
 
                     // not covered:
                     // -- map array
@@ -309,9 +339,9 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <summary>
         /// Converts a StructArray to a JSON string.
         /// </summary>
-        private static string SerializeToJson(StructArray structArray, int index)
+        private static string SerializeToJson(StructArray structArray, int index, TimeStampConversionType timeStampConversionType)
         {
-            Dictionary<string, object?>? obj = ParseStructArray(structArray, index);
+            Dictionary<string, object?>? obj = ParseStructArray(structArray, index, timeStampConversionType);
 
             return JsonSerializer.Serialize(obj);
         }
@@ -319,7 +349,11 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <summary>
         /// Converts an item in the StructArray at the index position to a Dictionary<string, object?>.
         /// </summary>
-        private static Dictionary<string, object?>? ParseStructArray(StructArray structArray, int index)
+        private static Dictionary<string, object?>? ParseStructArray(
+            StructArray structArray,
+            int index,
+            TimeStampConversionType timeStampConversionType
+            )
         {
             if (structArray.IsNull(index))
                 return null;
@@ -346,7 +380,7 @@ namespace Apache.Arrow.Adbc.Extensions
 
                         for (int j = 0; j < structArray1.Length; j++)
                         {
-                            children.Add(ParseStructArray(structArray1, j));
+                            children.Add(ParseStructArray(structArray1, j, timeStampConversionType));
                         }
 
                         jsonDictionary.Add(name, children);
@@ -354,7 +388,7 @@ namespace Apache.Arrow.Adbc.Extensions
                 }
                 else if (value is IArrowArray arrowArray)
                 {
-                    IList? values = CreateList(arrowArray);
+                    IList? values = CreateList(arrowArray, timeStampConversionType);
 
                     if (values != null)
                     {
@@ -385,7 +419,7 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <param name="arrowArray"></param>
         /// <returns></returns>
         /// <exception cref="ArgumentNullException"></exception>
-        private static IList? CreateList(IArrowArray arrowArray)
+        private static IList? CreateList(IArrowArray arrowArray, TimeStampConversionType timeStampConversionType)
         {
             if (arrowArray == null) throw new ArgumentNullException(nameof(arrowArray));
 
@@ -428,7 +462,7 @@ namespace Apache.Arrow.Adbc.Extensions
                     return new List<TimeSpan>();
 #endif
                 case TimestampArray timestampArray:
-                    return new List<DateTimeOffset>();
+                    return timeStampConversionType == TimeStampConversionType.DateTimeOffset ? new List<DateTimeOffset>() : new List<DateTime>();
                 case UInt8Array uInt8Array:
                     return new List<byte>();
                 case UInt16Array uInt16Array:
