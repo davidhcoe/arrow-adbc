@@ -31,7 +31,7 @@ namespace Apache.Arrow.Adbc.Extensions
         Object
     }
 
-    public enum TimeStampConversionType
+    public enum TimestampConversionType
     {
         DateTimeOffset,
         DateTime
@@ -55,7 +55,7 @@ namespace Apache.Arrow.Adbc.Extensions
 
         public static object? ValueAt(this IArrowArray arrowArray, int index, StructResultType resultType)
         {
-            return ValueAt(arrowArray, index, resultType, TimeStampConversionType.DateTimeOffset);
+            return ValueAt(arrowArray, index, resultType, TimestampConversionType.DateTimeOffset);
         }
 
         /// <summary>
@@ -74,7 +74,7 @@ namespace Apache.Arrow.Adbc.Extensions
             this IArrowArray arrowArray,
             int index,
             StructResultType resultType,
-            TimeStampConversionType timeStampConversionType)
+            TimestampConversionType timestampConversionType)
         {
             if (arrowArray == null) throw new ArgumentNullException(nameof(arrowArray));
             if (index < 0) throw new ArgumentOutOfRangeException(nameof(index));
@@ -146,9 +146,9 @@ namespace Apache.Arrow.Adbc.Extensions
                     };
 #endif
                 case ArrowTypeId.Timestamp:
-                    switch (timeStampConversionType)
+                    switch (timestampConversionType)
                     {
-                        case TimeStampConversionType.DateTime:
+                        case TimestampConversionType.DateTime:
                             long? ticks = ((TimestampArray)arrowArray).GetValue(index);
                             return ticks.HasValue ? new DateTime(ticks.Value, DateTimeKind.Utc) : null;
                         default:
@@ -180,7 +180,7 @@ namespace Apache.Arrow.Adbc.Extensions
                     return ((ListArray)arrowArray).GetSlicedValues(index);
                 case ArrowTypeId.Struct:
                     StructArray structArray = (StructArray)arrowArray;
-                    return resultType == StructResultType.JsonString ? SerializeToJson(structArray, index, timeStampConversionType) : ParseStructArray(structArray, index, timeStampConversionType);
+                    return resultType == StructResultType.JsonString ? SerializeToJson(structArray, index, timestampConversionType) : ParseStructArray(structArray, index, timestampConversionType);
 
                     // not covered:
                     // -- map array
@@ -223,7 +223,7 @@ namespace Apache.Arrow.Adbc.Extensions
         public static Func<IArrowArray, int, object?> GetValueConverter(
             this IArrowType arrayType,
             StructResultType resultType,
-            TimeStampConversionType timeStampConversionType)
+            TimestampConversionType timestampConversionType)
         {
             if (arrayType == null) throw new ArgumentNullException(nameof(arrayType));
 
@@ -323,8 +323,8 @@ namespace Apache.Arrow.Adbc.Extensions
                     return (array, index) => ((ListArray)array).GetSlicedValues(index);
                 case ArrowTypeId.Struct:
                     return resultType == StructResultType.JsonString ?
-                        (array, index) => SerializeToJson((StructArray)array, index, timeStampConversionType) :
-                        (array, index) => ParseStructArray((StructArray)array, index, timeStampConversionType);
+                        (array, index) => SerializeToJson((StructArray)array, index, timestampConversionType) :
+                        (array, index) => ParseStructArray((StructArray)array, index, timestampConversionType);
 
                     // not covered:
                     // -- map array
@@ -339,9 +339,9 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <summary>
         /// Converts a StructArray to a JSON string.
         /// </summary>
-        private static string SerializeToJson(StructArray structArray, int index, TimeStampConversionType timeStampConversionType)
+        private static string SerializeToJson(StructArray structArray, int index, TimestampConversionType timestampConversionType)
         {
-            Dictionary<string, object?>? obj = ParseStructArray(structArray, index, timeStampConversionType);
+            Dictionary<string, object?>? obj = ParseStructArray(structArray, index, timestampConversionType);
 
             return JsonSerializer.Serialize(obj);
         }
@@ -352,7 +352,7 @@ namespace Apache.Arrow.Adbc.Extensions
         private static Dictionary<string, object?>? ParseStructArray(
             StructArray structArray,
             int index,
-            TimeStampConversionType timeStampConversionType
+            TimestampConversionType timestampConversionType
             )
         {
             if (structArray.IsNull(index))
@@ -380,7 +380,7 @@ namespace Apache.Arrow.Adbc.Extensions
 
                         for (int j = 0; j < structArray1.Length; j++)
                         {
-                            children.Add(ParseStructArray(structArray1, j, timeStampConversionType));
+                            children.Add(ParseStructArray(structArray1, j, timestampConversionType));
                         }
 
                         jsonDictionary.Add(name, children);
@@ -388,7 +388,7 @@ namespace Apache.Arrow.Adbc.Extensions
                 }
                 else if (value is IArrowArray arrowArray)
                 {
-                    IList? values = CreateList(arrowArray, timeStampConversionType);
+                    IList? values = CreateList(arrowArray, timestampConversionType);
 
                     if (values != null)
                     {
@@ -419,7 +419,7 @@ namespace Apache.Arrow.Adbc.Extensions
         /// <param name="arrowArray"></param>
         /// <returns></returns>
         /// <exception cref="ArgumentNullException"></exception>
-        private static IList? CreateList(IArrowArray arrowArray, TimeStampConversionType timeStampConversionType)
+        private static IList? CreateList(IArrowArray arrowArray, TimestampConversionType timestampConversionType)
         {
             if (arrowArray == null) throw new ArgumentNullException(nameof(arrowArray));
 
@@ -462,7 +462,7 @@ namespace Apache.Arrow.Adbc.Extensions
                     return new List<TimeSpan>();
 #endif
                 case TimestampArray timestampArray:
-                    return timeStampConversionType == TimeStampConversionType.DateTimeOffset ? new List<DateTimeOffset>() : new List<DateTime>();
+                    return timestampConversionType == TimestampConversionType.DateTimeOffset ? new List<DateTimeOffset>() : new List<DateTime>();
                 case UInt8Array uInt8Array:
                     return new List<byte>();
                 case UInt16Array uInt16Array:

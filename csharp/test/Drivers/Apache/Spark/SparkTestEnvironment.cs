@@ -152,6 +152,14 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
             else
                 floatValue = 1d;
 
+            if (ServerType == SparkServerType.Databricks)
+            {
+            }
+            else
+            {
+                sampleDataBuilder.Samples.AddRange(GetTimestampSamplesForSparkNative());
+            }
+
             // standard values
             sampleDataBuilder.Samples.Add(
                 new SampleData()
@@ -175,20 +183,20 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
                     ExpectedValues =
                     [
                         new("id", typeof(long), typeof(Int64Type), 1L),
-                        new("int", typeof(int), typeof(Int32Type), 2),
-                        new("number_float", floatNetType, floatArrowType, floatValue),
-                        new("number_double", typeof(double), typeof(DoubleType), 4.56d),
-                        new("decimal", typeof(SqlDecimal), typeof(Decimal128Type), SqlDecimal.Parse("4.56")),
-                        new("big_decimal", typeof(SqlDecimal), typeof(Decimal128Type), SqlDecimal.Parse("9.9999999999999999999999999999999999999")),
-                        new("is_active", typeof(bool), typeof(BooleanType), true),
-                        new("name", typeof(string), typeof(StringType), "John Doe"),
-                        new("data", typeof(byte[]), typeof(BinaryType), UTF8Encoding.UTF8.GetBytes("abc123")),
-                        new("date", typeof(DateTime), typeof(Date32Type), new DateTime(2023, 9, 8)),
-                        new("timestamp", typeof(DateTimeOffset), typeof(TimestampType), new DateTimeOffset(new DateTime(2023, 9, 8, 12, 34, 56), TimeSpan.Zero)),
-                        new("interval", typeof(string), typeof(StringType), "178956969-11"),
-                        new("numbers", typeof(string), typeof(StringType), "[1,2,3]"),
-                        new("person", typeof(string), typeof(StringType), """{"name":"John Doe","age":30}"""),
-                        new("map", typeof(string), typeof(StringType), """{"age":"29","name":"Jane Doe"}""") // This is unexpected JSON. Expecting 29 to be a numeric and not string.
+                    new("int", typeof(int), typeof(Int32Type), 2),
+                    new("number_float", floatNetType, floatArrowType, floatValue),
+                    new("number_double", typeof(double), typeof(DoubleType), 4.56d),
+                    new("decimal", typeof(SqlDecimal), typeof(Decimal128Type), SqlDecimal.Parse("4.56")),
+                    new("big_decimal", typeof(SqlDecimal), typeof(Decimal128Type), SqlDecimal.Parse("9.9999999999999999999999999999999999999")),
+                    new("is_active", typeof(bool), typeof(BooleanType), true),
+                    new("name", typeof(string), typeof(StringType), "John Doe"),
+                    new("data", typeof(byte[]), typeof(BinaryType), UTF8Encoding.UTF8.GetBytes("abc123")),
+                    new("date", typeof(DateTime), typeof(Date32Type), new DateTime(2023, 9, 8)),
+                    new("timestamp", typeof(DateTimeOffset), typeof(TimestampType), new DateTimeOffset(new DateTime(2023, 9, 8, 12, 34, 56), TimeSpan.Zero)),
+                    new("interval", typeof(string), typeof(StringType), "178956969-11"),
+                    new("numbers", typeof(string), typeof(StringType), "[1,2,3]"),
+                    new("person", typeof(string), typeof(StringType), """{"name":"John Doe","age":30}"""),
+                    new("map", typeof(string), typeof(StringType), """{"age":"29","name":"Jane Doe"}""") // This is unexpected JSON. Expecting 29 to be a numeric and not string.
                     ]
                 });
 
@@ -290,6 +298,51 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
             });
 
             return sampleDataBuilder;
+        }
+
+        private List<SampleData> GetTimestampSamplesForSparkNative()
+        {
+            List<SampleData> additionalSamples = new List<SampleData>(); ;
+
+            DateTimeOffset dateTimeOffset = new DateTimeOffset(new DateTime(2023, 9, 8, 12, 34, 56), TimeSpan.Zero);
+            string query = "SELECT to_timestamp('2023-09-08T12:34:56.000Z') as {0}";
+
+            // TimestampBehavior = "DateTime"
+            additionalSamples.Add(
+               new SampleData()
+               {
+                   Query = string.Format(query, "TimestampAsDateTime"),
+                   TimestampBehavior = "DateTime",
+                   ExpectedValues = new List<ColumnNetTypeArrowTypeValue>()
+                   {
+                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTime", typeof(DateTime), typeof(TimestampType), DateTime.Parse("2023-09-08T12:34:56.000Z"))
+                   }
+               });
+
+            // TimestampBehavior = "DateTimeOffset" (default)
+            additionalSamples.Add(
+              new SampleData()
+              {
+                  Query = string.Format(query, "TimestampAsDateTimeOffset"),
+                  TimestampBehavior = "DateTimeOffset",
+                  ExpectedValues = new List<ColumnNetTypeArrowTypeValue>()
+                  {
+                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTimeOffset", typeof(DateTimeOffset), typeof(TimestampType), dateTimeOffset)
+                  }
+              });
+
+            // just using default
+            additionalSamples.Add(
+              new SampleData()
+              {
+                  Query = string.Format(query, "TimestampAsDateTimeOffset"),
+                  ExpectedValues = new List<ColumnNetTypeArrowTypeValue>()
+                  {
+                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTimeOffset", typeof(DateTime), typeof(TimestampType), dateTimeOffset)
+                  }
+              });
+
+            return additionalSamples;
         }
     }
 }

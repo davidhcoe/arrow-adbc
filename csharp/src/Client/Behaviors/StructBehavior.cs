@@ -15,7 +15,7 @@
 * limitations under the License.
 */
 
-namespace Apache.Arrow.Adbc.Client
+namespace Apache.Arrow.Adbc.Client.Behaviors
 {
     /// <summary>
     /// Controls the behavior of how StructArrays should be handled in the results.

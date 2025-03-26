@@ -24,6 +24,7 @@ using System.Data.SqlTypes;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
+using Apache.Arrow.Adbc.Client.Behaviors;
 using Apache.Arrow.Types;
 
 namespace Apache.Arrow.Adbc.Client
@@ -54,7 +55,7 @@ namespace Apache.Arrow.Adbc.Client
             this.DbConnection = adbcConnection;
             this.DecimalBehavior = adbcConnection.DecimalBehavior;
             this.StructBehavior = adbcConnection.StructBehavior;
-            this.TimeStampBehavior = adbcConnection.TimeStampBehavior;
+            this.TimestampBehavior = adbcConnection.TimestampBehavior;
             this._adbcStatement = adbcConnection.CreateStatement();
         }
 
@@ -77,7 +78,7 @@ namespace Apache.Arrow.Adbc.Client
             this.DbConnection = adbcConnection;
             this.DecimalBehavior = adbcConnection.DecimalBehavior;
             this.StructBehavior = adbcConnection.StructBehavior;
-            this.TimeStampBehavior = adbcConnection.TimeStampBehavior;
+            this.TimestampBehavior = adbcConnection.TimestampBehavior;
         }
 
         // For testing
@@ -87,7 +88,7 @@ namespace Apache.Arrow.Adbc.Client
             this.DbConnection = adbcConnection;
             this.DecimalBehavior = adbcConnection.DecimalBehavior;
             this.StructBehavior = adbcConnection.StructBehavior;
-            this.TimeStampBehavior = adbcConnection.TimeStampBehavior;
+            this.TimestampBehavior = adbcConnection.TimestampBehavior;
 
             if (adbcConnection.CommandTimeoutValue != null)
             {
@@ -106,7 +107,7 @@ namespace Apache.Arrow.Adbc.Client
 
         public StructBehavior StructBehavior { get; set; }
 
-        public TimeStampBehavior TimeStampBehavior { get; set; }
+        public TimestampBehavior TimestampBehavior { get; set; }
 
         public override string CommandText
         {
@@ -243,7 +244,7 @@ namespace Apache.Arrow.Adbc.Client
                 case CommandBehavior.SchemaOnly:   // The schema is not known until a read happens
                 case CommandBehavior.Default:
                     QueryResult result = this.ExecuteQuery();
-                    return new AdbcDataReader(this, result, this.DecimalBehavior, this.StructBehavior, this.TimeStampBehavior, closeConnection);
+                    return new AdbcDataReader(this, result, this.DecimalBehavior, this.StructBehavior, this.TimestampBehavior, closeConnection);
 
                 default:
                     throw new InvalidOperationException($"{behavior} is not supported with this provider");

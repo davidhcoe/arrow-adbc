@@ -23,6 +23,7 @@ using System.Data;
 using System.Data.Common;
 using System.Linq;
 using Apache.Arrow.Adbc.Client;
+using Apache.Arrow.Adbc.Client.Behaviors;
 using Apache.Arrow.Types;
 using Xunit;
 
@@ -176,6 +177,14 @@ namespace Apache.Arrow.Adbc.Tests
                     if (Enum.TryParse(sample.StructBehavior, out StructBehavior behavior))
                     {
                         adbcConnection.StructBehavior = behavior;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(sample.TimestampBehavior))
+                {
+                    if (Enum.TryParse(sample.TimestampBehavior, out TimestampBehavior behavior))
+                    {
+                        adbcConnection.TimestampBehavior = behavior;
                     }
                 }
 

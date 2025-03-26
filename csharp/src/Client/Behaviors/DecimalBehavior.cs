@@ -18,7 +18,7 @@
 using System;
 using System.Data.SqlTypes;
 
-namespace Apache.Arrow.Adbc.Client
+namespace Apache.Arrow.Adbc.Client.Behaviors
 {
     /// <summary>
     /// Some callers may choose to leverage the default

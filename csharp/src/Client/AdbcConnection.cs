@@ -21,6 +21,7 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using Apache.Arrow.Adbc.Client.Behaviors;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using GetObjectsDepth = Apache.Arrow.Adbc.AdbcConnection.GetObjectsDepth;
@@ -140,7 +141,7 @@ namespace Apache.Arrow.Adbc.Client
         /// </summary>
         public StructBehavior StructBehavior { get; set; } = StructBehavior.JsonString;
 
-        public TimeStampBehavior TimeStampBehavior { get; set; } = TimeStampBehavior.DateTimeOffset;
+        public TimestampBehavior TimestampBehavior { get; set; } = TimestampBehavior.DateTimeOffset;
 
 
         public override int ConnectionTimeout
@@ -272,8 +273,8 @@ namespace Apache.Arrow.Adbc.Client
                         case ConnectionStringKeywords.StructBehavior:
                             this.StructBehavior = (StructBehavior)Enum.Parse(typeof(StructBehavior), paramValue);
                             break;
-                        case ConnectionStringKeywords.TimeStampBehavior:
-                            this.TimeStampBehavior = (TimeStampBehavior)Enum.Parse(typeof(TimeStampBehavior), paramValue);
+                        case ConnectionStringKeywords.TimestampBehavior:
+                            this.TimestampBehavior = (TimestampBehavior)Enum.Parse(typeof(TimestampBehavior), paramValue);
                             break;
                         case ConnectionStringKeywords.CommandTimeout:
                             CommandTimeoutValue = ConnectionStringParser.ParseTimeoutValue(paramValue);

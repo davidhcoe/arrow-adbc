@@ -26,6 +26,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Apache.Arrow.Adbc.Client.Behaviors;
 using Apache.Arrow.Adbc.Extensions;
 using Apache.Arrow.Types;
 
@@ -67,7 +68,7 @@ namespace Apache.Arrow.Adbc.Client
             QueryResult adbcQueryResult,
             DecimalBehavior decimalBehavior,
             StructBehavior structBehavior,
-            TimeStampBehavior timeStampBehavior,
+            TimestampBehavior timestampBehavior,
             bool closeConnection)
         {
             if (adbcCommand == null)
@@ -90,15 +91,15 @@ namespace Apache.Arrow.Adbc.Client
             this.isClosed = false;
             this.DecimalBehavior = decimalBehavior;
             this.StructBehavior = structBehavior;
-            this.TimeStampBehavior = timeStampBehavior;
+            this.TimestampBehavior = timestampBehavior;
 
             StructResultType structResultType = this.StructBehavior == StructBehavior.JsonString ? StructResultType.JsonString : StructResultType.Object;
-            TimeStampConversionType timeStampConversionType = this.TimeStampBehavior == TimeStampBehavior.DateTimeOffset ? TimeStampConversionType.DateTimeOffset : TimeStampConversionType.DateTime;
+            TimestampConversionType timestampConversionType = this.TimestampBehavior == TimestampBehavior.DateTimeOffset ? TimestampConversionType.DateTimeOffset : TimestampConversionType.DateTime;
 
             this.converters = new Func<IArrowArray, int, object?>[this.schema.FieldsList.Count];
             for (int i = 0; i < this.converters.Length; i++)
             {
-                this.converters[i] = this.schema.FieldsList[i].DataType.GetValueConverter(structResultType, timeStampConversionType);
+                this.converters[i] = this.schema.FieldsList[i].DataType.GetValueConverter(structResultType, timestampConversionType);
             }
         }
 
@@ -123,7 +124,7 @@ namespace Apache.Arrow.Adbc.Client
 
         public StructBehavior StructBehavior { get; set; }
 
-        public TimeStampBehavior TimeStampBehavior { get; set; }
+        public TimestampBehavior TimestampBehavior { get; set; }
 
         public override int RecordsAffected => this.recordsAffected;
 
@@ -351,7 +352,7 @@ namespace Apache.Arrow.Adbc.Client
 
         public override DataTable? GetSchemaTable()
         {
-            return SchemaConverter.ConvertArrowSchema(this.schema, this.adbcCommand.AdbcStatement, this.DecimalBehavior, this.StructBehavior, this.TimeStampBehavior);
+            return SchemaConverter.ConvertArrowSchema(this.schema, this.adbcCommand.AdbcStatement, this.DecimalBehavior, this.StructBehavior, this.TimestampBehavior);
         }
 
 #if NET5_0_OR_GREATER
@@ -371,7 +372,7 @@ namespace Apache.Arrow.Adbc.Client
 
             foreach (Field f in this.schema.FieldsList)
             {
-                Type t = SchemaConverter.ConvertArrowType(f, this.DecimalBehavior, this.StructBehavior, this.TimeStampBehavior);
+                Type t = SchemaConverter.ConvertArrowType(f, this.DecimalBehavior, this.StructBehavior, this.TimestampBehavior);
 
                 if (f.HasMetadata &&
                     f.Metadata.ContainsKey("precision") &&

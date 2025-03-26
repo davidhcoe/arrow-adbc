@@ -23,6 +23,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Apache.Arrow.Adbc.Client;
+using Apache.Arrow.Adbc.Client.Behaviors;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
 using Moq;

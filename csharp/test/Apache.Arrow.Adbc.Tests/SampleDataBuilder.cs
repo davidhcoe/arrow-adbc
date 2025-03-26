@@ -67,6 +67,16 @@ namespace Apache.Arrow.Adbc.Tests
         public string? StructBehavior { get; set; }
 
         /// <summary>
+        /// Optional value to indicate how Timestamps should be treated in the sample data.
+        /// </summary>
+        /// <example>
+        /// DateTimeOffset (default)
+        /// DateTime
+        /// </example>
+
+        public string? TimestampBehavior { get; set; }
+
+        /// <summary>
         /// The expected values.
         /// </summary>
         public List<ColumnNetTypeArrowTypeValue> ExpectedValues { get; set; }
