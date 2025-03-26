@@ -315,7 +315,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
                    TimestampBehavior = "DateTime",
                    ExpectedValues = new List<ColumnNetTypeArrowTypeValue>()
                    {
-                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTime", typeof(DateTime), typeof(TimestampType), DateTime.Parse("2023-09-08T12:34:56.000Z"))
+                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTime", typeof(DateTime), typeof(TimestampType), new DateTime(2023, 9, 8, 12, 34, 56))
                    }
                });
 
@@ -338,7 +338,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
                   Query = string.Format(query, "TimestampAsDateTimeOffset"),
                   ExpectedValues = new List<ColumnNetTypeArrowTypeValue>()
                   {
-                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTimeOffset", typeof(DateTime), typeof(TimestampType), dateTimeOffset)
+                        new ColumnNetTypeArrowTypeValue("TimestampAsDateTimeOffset", typeof(DateTimeOffset), typeof(TimestampType), dateTimeOffset)
                   }
               });
 

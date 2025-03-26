@@ -20,7 +20,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Data.SqlTypes;
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
+using Apache.Arrow.C;
 using Apache.Arrow.Types;
 
 namespace Apache.Arrow.Adbc.Extensions
@@ -149,8 +151,7 @@ namespace Apache.Arrow.Adbc.Extensions
                     switch (timestampConversionType)
                     {
                         case TimestampConversionType.DateTime:
-                            long? ticks = ((TimestampArray)arrowArray).GetValue(index);
-                            return ticks.HasValue ? new DateTime(ticks.Value, DateTimeKind.Utc) : null;
+                            return ((TimestampArray)arrowArray).GetDateTime(index);
                         default:
                             return ((TimestampArray)arrowArray).GetTimestamp(index);
                     }
@@ -295,7 +296,13 @@ namespace Apache.Arrow.Adbc.Extensions
                     }
 #endif
                 case ArrowTypeId.Timestamp:
-                    return (array, index) => ((TimestampArray)array).GetTimestamp(index);
+                    switch (timestampConversionType)
+                    {
+                        case TimestampConversionType.DateTime:
+                            return (array, index) => ((TimestampArray)array).GetDateTime(index);
+                        default:
+                            return (array, index) => ((TimestampArray)array).GetTimestamp(index);
+                    }
                 case ArrowTypeId.UInt8:
                     return (array, index) => ((UInt8Array)array).GetValue(index);
                 case ArrowTypeId.UInt16:
