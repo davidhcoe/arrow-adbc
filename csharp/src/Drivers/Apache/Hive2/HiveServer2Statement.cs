@@ -78,15 +78,37 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
 
         private async Task<QueryResult> ExecuteQueryAsyncInternal(CancellationToken cancellationToken = default)
         {
-            // this could either:
-            // take QueryTimeoutSeconds * 3
-            // OR
-            // take QueryTimeoutSeconds (but this could be restricting)
-            await ExecuteStatementAsync(cancellationToken); // --> get QueryTimeout +
-            await HiveServer2Connection.PollForResponseAsync(OperationHandle!, Connection.Client, PollTimeMilliseconds, cancellationToken); // + poll, up to QueryTimeout
-            Schema schema = await GetResultSetSchemaAsync(OperationHandle!, Connection.Client, cancellationToken); // + get the result, up to QueryTimeout
+            if (string.IsNullOrEmpty(SqlQuery) && this.CrossReferenceFunctionName == "GetPrimaryKeys")
+            {
+                return GetPrimaryKeys();
+            }
+            else
+            {
+                // this could either:
+                // take QueryTimeoutSeconds * 3
+                // OR
+                // take QueryTimeoutSeconds (but this could be restricting)
+                await ExecuteStatementAsync(cancellationToken); // --> get QueryTimeout +
+                await HiveServer2Connection.PollForResponseAsync(OperationHandle!, Connection.Client, PollTimeMilliseconds, cancellationToken); // + poll, up to QueryTimeout
+                Schema schema = await GetResultSetSchemaAsync(OperationHandle!, Connection.Client, cancellationToken); // + get the result, up to QueryTimeout
 
-            return new QueryResult(-1, Connection.NewReader(this, schema));
+                return new QueryResult(-1, Connection.NewReader(this, schema));
+            }
+        }
+
+        private QueryResult GetPrimaryKeys()
+        {
+            // TODO: validation
+
+            IArrowArrayStream s = Connection.GetObjects(
+                AdbcConnection.GetObjectsDepth.All,
+                this.CrossReferenceCatalog,
+                this.CrossReferenceSchema,
+                this.CrossReferenceTable,
+                null,
+                null);
+
+            return new QueryResult(-1, s);
         }
 
         public override async ValueTask<QueryResult> ExecuteQueryAsync()
@@ -188,6 +210,18 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
                         QueryTimeoutSeconds = queryTimeoutSeconds;
                     }
                     break;
+                case ApacheParameters.CrossReferenceFunctionToExecute:
+                    this.CrossReferenceFunctionName = value;
+                    break;
+                case ApacheParameters.CrossReferenceCatalog:
+                    this.CrossReferenceCatalog = value;
+                    break;
+                case ApacheParameters.CrossReferenceSchema:
+                    this.CrossReferenceSchema = value;
+                    break;
+                case ApacheParameters.CrossReferenceTable:
+                    this.CrossReferenceTable = value;
+                    break;
                 default:
                     throw AdbcException.NotImplemented($"Option '{key}' is not implemented.");
             }
@@ -217,6 +251,12 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Hive2
             get => Connection.QueryTimeoutSeconds;
             set => Connection.QueryTimeoutSeconds = value;
         }
+
+        protected internal string? CrossReferenceFunctionName { get; set; }
+        protected internal string? CrossReferenceCatalog { get; set; }
+        protected internal string? CrossReferenceSchema { get; set; }
+        protected internal string? CrossReferenceTable { get; set; }
+
 
         public HiveServer2Connection Connection { get; private set; }
 

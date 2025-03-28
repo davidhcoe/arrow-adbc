@@ -25,5 +25,11 @@ namespace Apache.Arrow.Adbc.Drivers.Apache
         public const string PollTimeMilliseconds = "adbc.apache.statement.polltime_ms";
         public const string BatchSize = "adbc.apache.statement.batch_size";
         public const string QueryTimeoutSeconds = "adbc.apache.statement.query_timeout_s";
+
+        public const string CrossReferenceFunctionToExecute = "adbc.apache.cross_reference_function";
+        public const string CrossReferenceCatalog = "adbc.apache.cross_reference.parent_catalog_name";
+        public const string CrossReferenceSchema = "adbc.apache.cross_reference.parent_schema_name";
+        public const string CrossReferenceTable = "adbc.apache.cross_reference.parent_table_name";
+
     }
 }

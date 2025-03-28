@@ -182,6 +182,21 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Common
             using TemporaryTable temporaryTable = await NewTemporaryTableAsync(Statement, $"{columnName} INT");
             await ValidateInsertSelectDeleteSingleValueAsync(temporaryTable.TableName, columnName, 1);
         }
+
+        /// <summary>
+        /// Validates if the driver can execute update statements.
+        /// </summary>
+        [SkippableFact, Order(2)]
+        public void CanGetPrimaryKeys()
+        {
+            Statement.SetOption(ApacheParameters.CrossReferenceFunctionToExecute, "GetPrimaryKeys");
+//            Statement.SetOption(ApacheParameters.CrossReferenceCatalog, TestConfiguration.Metadata.Catalog);
+            Statement.SetOption(ApacheParameters.CrossReferenceSchema, TestConfiguration.Metadata.Schema);
+            Statement.SetOption(ApacheParameters.CrossReferenceTable, TestConfiguration.Metadata.Table);
+
+            QueryResult queryResult = Statement.ExecuteQuery();
+        }
+
     }
 
     /// <summary>
