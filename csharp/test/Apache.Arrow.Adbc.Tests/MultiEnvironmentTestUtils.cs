@@ -71,20 +71,7 @@ namespace Apache.Arrow.Adbc.Tests
 
                 if (testConfiguration.SharedKeyValuePairs.Count > 0)
                 {
-                    foreach (PropertyInfo pi in testEnvironment.GetType().GetProperties())
-                    {
-                        if (pi.PropertyType == typeof(string) &&
-                            pi.GetValue(testEnvironment) is string propertyValue &&
-                            propertyValue.StartsWith(term, StringComparison.Ordinal))
-                        {
-                            string lookupKey = propertyValue.AsSpan(term.Length).ToString();
-
-                            if (testConfiguration.SharedKeyValuePairs.TryGetValue(lookupKey, out string? sharedValue))
-                            {
-                                pi.SetValue(testEnvironment, sharedValue);
-                            }
-                        }
-                    }
+                    ReplaceSharedReferences(testEnvironment, testConfiguration.SharedKeyValuePairs, term);
                 }
 
                 environments.Add(testEnvironment);
@@ -94,6 +81,57 @@ namespace Apache.Arrow.Adbc.Tests
                 throw new InvalidOperationException("Could not find a configured environment to execute the tests");
 
             return environments;
+        }
+
+        private static void ReplaceSharedReferences(object obj, Dictionary<string, string> sharedValues, string term)
+        {
+            if (obj == null)
+                return;
+
+            Type objType = obj.GetType();
+
+            // Skip primitive and system types
+            if (objType.IsPrimitive || objType == typeof(string) || objType.FullName?.StartsWith("System.", StringComparison.Ordinal) == true)
+                return;
+
+            foreach (PropertyInfo property in objType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                // Skip properties that can't be read or written
+                if (!property.CanRead || !property.CanWrite)
+                    continue;
+
+                try
+                {
+                    object? propertyValue = property.GetValue(obj);
+
+                    if (property.PropertyType == typeof(string) && propertyValue is string stringValue)
+                    {
+                        // Handle string properties that start with the reference term
+                        if (stringValue.StartsWith(term, StringComparison.Ordinal))
+                        {
+                            string lookupKey = stringValue.Substring(term.Length);
+                            if (sharedValues.TryGetValue(lookupKey, out string? sharedValue))
+                            {
+                                property.SetValue(obj, sharedValue);
+                            }
+                        }
+                    }
+                    else if (propertyValue != null &&
+                             !property.PropertyType.IsPrimitive &&
+                             property.PropertyType != typeof(string) &&
+                             !property.PropertyType.FullName?.StartsWith("System.", StringComparison.Ordinal) == true)
+                    {
+                        // Recursively process nested objects
+                        ReplaceSharedReferences(propertyValue, sharedValues, term);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log or handle reflection errors gracefully
+                    // You might want to add logging here depending on your needs
+                    System.Diagnostics.Debug.WriteLine($"Error processing property {property.Name} on type {objType.Name}: {ex.Message}");
+                }
+            }
         }
 
         private static List<string> GetEnvironmentNames(List<string> names)

@@ -18,11 +18,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Apache.Arrow.Adbc.Tests.Metadata;
 using Apache.Arrow.Adbc.Tests.Xunit;
 using Apache.Arrow.Ipc;
 using Apache.Arrow.Types;
+using Microsoft.Extensions.Options;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
 {
@@ -37,6 +40,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
     public class DriverTests : IDisposable
     {
         readonly SnowflakeTestConfiguration _testConfiguration;
+        readonly SnowflakeMultiTestConfiguration _multiTestConfiguration;
         readonly AdbcDriver _snowflakeDriver;
         readonly AdbcDatabase _database;
         readonly AdbcConnection _connection;
@@ -73,7 +77,11 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
             return GetPatterns(tableName);
         }
 
-        public DriverTests()
+        readonly List<SnowflakeTestConfiguration> _environments;
+
+        readonly ITestOutputHelper? _outputHelper;
+
+        public DriverTests(ITestOutputHelper? outputHelper)
         {
             Skip.IfNot(Utils.CanExecuteTestConfig(SnowflakeTestingUtils.SNOWFLAKE_TEST_CONFIG_VARIABLE));
             _testConfiguration = SnowflakeTestingUtils.TestConfiguration;
@@ -85,6 +93,12 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
 
             _database = _snowflakeDriver.Open(parameters);
             _connection = _database.Connect(options);
+
+
+            // for parallel queries
+            _multiTestConfiguration = MultiEnvironmentTestUtils.LoadMultiEnvironmentTestConfiguration<SnowflakeMultiTestConfiguration>(SnowflakeTestingUtils.SNOWFLAKE_TEST_CONFIG_VARIABLE);
+            _environments = MultiEnvironmentTestUtils.GetTestEnvironments<SnowflakeTestConfiguration>(_multiTestConfiguration);
+            _outputHelper = outputHelper;
         }
 
         /// <summary>
@@ -474,6 +488,39 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
         }
 
         /// <summary>
+        /// Validates if the driver can connect to a live server and
+        /// parse the results.
+        /// </summary>
+        [SkippableFact, Order(6)]
+        public void CanExecuteParallelQueries()
+        {
+            // queries are tied to warehouses, and warehouses are configured at the environment level,
+            // so let's also run the environments in parallel
+            Parallel.For(0, _environments.Count, (i) =>
+            {
+                SnowflakeTestConfiguration environment = _environments[i];
+                AdbcConnection adbcConnection = GetAdbcConnection(environment.Name, environment);
+
+                Parallel.For(0, environment.NumberOfParallelRuns, (j) =>
+                {
+                    Parallel.ForEach(environment.ParallelQueries, pq =>
+                    {
+                        using (AdbcStatement statement = adbcConnection.CreateStatement())
+                        {
+                            statement.SqlQuery = pq.Query;
+
+                            QueryResult queryResult = statement.ExecuteQuery();
+
+                            _outputHelper?.WriteLine($"{environment.Name}: ({j}) {DateTime.Now.Ticks} - {queryResult.RowCount} results for {pq.Query}");
+
+                            Tests.DriverTests.CanExecuteQuery(queryResult, pq.ExpectedResultsCount, environment.Name);
+                        }
+                    });
+                });
+            });
+        }
+
+        /// <summary>
         /// Validates if the driver can connect to a live server and execute a parameterized query.
         /// </summary>
         [SkippableFact, Order(6)]
@@ -540,7 +587,6 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
             statement.ExecuteUpdate();
         }
 
-
         private void CreateDatabaseAndTable(string databaseName, string schemaName, string tableName)
         {
             databaseName = databaseName.Replace("\"", "\"\"");
@@ -605,5 +651,23 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
             _database.Dispose();
             _snowflakeDriver.Dispose();
         }
+
+        private AdbcConnection GetAdbcConnection(string? environmentName, SnowflakeTestConfiguration testConfiguration)
+        {
+            if (string.IsNullOrEmpty(environmentName))
+            {
+                throw new ArgumentNullException(nameof(environmentName));
+            }
+
+            Dictionary<string, string> parameters = new Dictionary<string, string>();
+            Dictionary<string, string> options = new Dictionary<string, string>();
+            AdbcDriver snowflakeDriver = SnowflakeTestingUtils.GetSnowflakeAdbcDriver(testConfiguration, out parameters);
+
+            AdbcDatabase database = snowflakeDriver.Open(parameters);
+            AdbcConnection connection = database.Connect(options);
+
+            return connection;
+        }
+
     }
 }

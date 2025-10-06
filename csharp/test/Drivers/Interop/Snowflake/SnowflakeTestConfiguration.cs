@@ -15,6 +15,8 @@
 * limitations under the License.
 */
 
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
@@ -22,7 +24,14 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
     /// <summary>
     /// Configuration settings for working with Snowflake.
     /// </summary>
-    internal class SnowflakeTestConfiguration : TestConfiguration
+    internal class SnowflakeMultiTestConfiguration : MultiEnvironmentTestConfiguration<SnowflakeTestConfiguration>
+    {
+    }
+
+    /// <summary>
+    /// Configuration settings for working with Snowflake.
+    /// </summary>
+    internal class SnowflakeTestConfiguration: TestConfiguration
     {
         /// <summary>
         /// The file path location of the driver.
@@ -95,7 +104,32 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
         /// </summary>
         [JsonPropertyName("roleInfo")]
         public RoleInfo? RoleInfo { get; set; }
+
+        /// <summary>
+        /// The number of times to repeat the parallel runs.
+        /// </summary>
+        [JsonPropertyName("numberOfParallelRuns")]
+        public int NumberOfParallelRuns { get; set; }
+
+        [JsonPropertyName("queries")]
+        public List<ParallelQuery> ParallelQueries { get; set; } = new List<ParallelQuery>();
     }
+
+    class ParallelQuery
+    {
+        /// <summary>
+        /// The query to run.
+        /// </summary>
+        [JsonPropertyName("query")]
+        public string Query { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The number of expected results from the query.
+        /// </summary>
+        [JsonPropertyName("expectedResults")]
+        public long ExpectedResultsCount { get; set; }
+    }
+
 
     public class SnowflakeAuthentication
     {
