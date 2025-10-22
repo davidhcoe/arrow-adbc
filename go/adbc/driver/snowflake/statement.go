@@ -51,12 +51,14 @@ const (
 )
 
 type statement struct {
-	cnxn                *connectionImpl
-	alloc               memory.Allocator
-	queueSize           int
-	prefetchConcurrency int
-	useHighPrecision    bool
-	statementCount      int
+	driverbase.StatementImplBase
+	cnxn                  *connectionImpl
+	alloc                 memory.Allocator
+	queueSize             int
+	prefetchConcurrency   int
+	useHighPrecision      bool
+	maxTimestampPrecision MaxTimestampPrecision
+        statementCount        int
 
 	query         string
 	targetTable   string
@@ -177,6 +179,9 @@ func (st *statement) SetOption(key string, val string) error {
 			}
 		}
 		return st.SetOptionInt(key, int64(size))
+	case OptionStatementQueryTag:
+		st.queryTag = val
+		return nil
 	case OptionUseHighPrecision:
 		switch val {
 		case adbc.OptionValueEnabled:
@@ -520,7 +525,8 @@ func (st *statement) ExecuteQuery(ctx context.Context) (reader array.RecordReade
 		return
 	}
 
-	loader, err := st.cnxn.cn.QueryArrowStream(ctx, st.query)
+	var loader gosnowflake.ArrowStreamLoader
+	loader, err = st.cnxn.cn.QueryArrowStream(ctx, st.query)
 	if err != nil {
 		err = errToAdbcErr(adbc.StatusInternal, err)
 		return
