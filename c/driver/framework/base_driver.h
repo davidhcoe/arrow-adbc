@@ -116,8 +116,9 @@ class Option {
                                              "': trailing data", value);
             }
             return parsed;
+          } else {
+            return status::InvalidArgument("Invalid integer value ", this->Format());
           }
-          return status::InvalidArgument("Invalid integer value ", this->Format());
         },
         value_);
   }
@@ -129,8 +130,9 @@ class Option {
           using T = std::decay_t<decltype(value)>;
           if constexpr (std::is_same_v<T, std::string>) {
             return value;
+          } else {
+            return status::InvalidArgument("Invalid string value ", this->Format());
           }
-          return status::InvalidArgument("Invalid string value ", this->Format());
         },
         value_);
   }
@@ -363,14 +365,27 @@ template <typename DatabaseT, typename ConnectionT, typename StatementT>
 class Driver {
  public:
   static AdbcStatusCode Init(int version, void* raw_driver, AdbcError* error) {
-    if (version != ADBC_VERSION_1_0_0 && version != ADBC_VERSION_1_1_0) {
-      return ADBC_STATUS_NOT_IMPLEMENTED;
+    auto* driver = reinterpret_cast<AdbcDriver*>(raw_driver);
+    
+    switch (version) {
+      case ADBC_VERSION_1_2_0:
+        std::memset(driver, 0, ADBC_DRIVER_1_2_0_SIZE);
+        break;
+      case ADBC_VERSION_1_1_0:
+        std::memset(driver, 0, ADBC_DRIVER_1_1_0_SIZE);
+        break;
+      case ADBC_VERSION_1_0_0:
+        std::memset(driver, 0, ADBC_DRIVER_1_0_0_SIZE);
+        break;
+      default:
+        return ADBC_STATUS_NOT_IMPLEMENTED;
     }
 
-    auto* driver = reinterpret_cast<AdbcDriver*>(raw_driver);
-    if (version >= ADBC_VERSION_1_1_0) {
-      std::memset(driver, 0, ADBC_DRIVER_1_1_0_SIZE);
+    if (version >= ADBC_VERSION_1_2_0) {
+      driver->StatementNextResult = &CStatementNextResult;
+    }
 
+    if (version >= ADBC_VERSION_1_1_0) {
       driver->ErrorGetDetailCount = &CErrorGetDetailCount;
       driver->ErrorGetDetail = &CErrorGetDetail;
 
@@ -402,8 +417,6 @@ class Driver {
       driver->StatementSetOptionBytes = &CSetOptionBytes<AdbcStatement>;
       driver->StatementSetOptionInt = &CSetOptionInt<AdbcStatement>;
       driver->StatementSetOptionDouble = &CSetOptionDouble<AdbcStatement>;
-    } else {
-      std::memset(driver, 0, ADBC_DRIVER_1_0_0_SIZE);
     }
 
     driver->private_data = new Driver();
@@ -753,6 +766,18 @@ class Driver {
     auto private_data = reinterpret_cast<StatementT*>(statement->private_data);
     return private_data->GetParameterSchema(schema, error);
   }
+
+  static AdbcStatusCode CStatementNextResult(AdbcStatement* statement,
+                                             ArrowSchema* schema,
+                                             ArrowArrayStream* stream,
+                                             AdbcPartitions* partitions
+                                             int64_t* rows_affected,
+                                             AdbcError* error)
+{
+    CHECK_INIT(statement, error);
+    auto private_data = reinterpret_cast<StatementT*>(statement->private_data);
+    return private_data->NextResult(schema, stream, partitions, rows_affected, error);
+}
 
   static AdbcStatusCode CStatementPrepare(AdbcStatement* statement, AdbcError* error) {
     CHECK_INIT(statement, error);
@@ -1131,7 +1156,13 @@ class BaseStatement : public ObjectBase {
 
   AdbcStatusCode ExecutePartitions(ArrowSchema* schema, AdbcPartitions* partitions,
                                    int64_t* rows_affected, AdbcError* error) {
-    return ADBC_STATUS_NOT_IMPLEMENTED;
+    RAISE_STATUS(error, impl().ExecutePartitionsImpl(schema, partitions, rows_affected));
+    return ADBC_STATUS_OK;
+  }
+
+  Status ExecutePartitionsImpl(ArrowSchema* schema, AdbcPartitions* partitions,
+                                   int64_t* rows_affected) {
+    return status::NotImplemented("ExecutePartitions");
   }
 
   AdbcStatusCode Cancel(AdbcError* error) {
@@ -1140,6 +1171,18 @@ class BaseStatement : public ObjectBase {
   }
 
   Status Cancel() { return status::NotImplemented("Cancel"); }
+
+  AdbcStatusCode NextResult(ArrowSchema* schema, ArrowArrayStream* stream,
+                            AdbcPartitions* partitions, int64_t* rows_affected,
+                            AdbcError* error) {
+    RAISE_STATUS(error, impl().NextResultImpl(schema, stream, partitions, rows_affected));
+    return ADBC_STATUS_OK;
+  }
+
+  Status NextResultImpl(ArrowSchema* schema, ArrowArrayStream* stream,
+                            AdbcPartitions* partitions, int64_t* rows_affected) {
+    return status::NotImplemented("NextResult");
+  }
 
  private:
   Derived& impl() { return static_cast<Derived&>(*this); }

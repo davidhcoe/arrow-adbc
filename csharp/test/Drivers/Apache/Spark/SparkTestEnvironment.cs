@@ -19,13 +19,15 @@ using System;
 using System.Collections.Generic;
 using System.Data.SqlTypes;
 using System.Text;
+using Apache.Arrow.Adbc.Drivers.Apache;
 using Apache.Arrow.Adbc.Drivers.Apache.Hive2;
 using Apache.Arrow.Adbc.Drivers.Apache.Spark;
+using Apache.Arrow.Adbc.Tests.Drivers.Apache.Common;
 using Apache.Arrow.Types;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 {
-    public class SparkTestEnvironment : TestEnvironment<SparkTestConfiguration>
+    public class SparkTestEnvironment : CommonTestEnvironment<SparkTestConfiguration>
     {
         public class Factory : Factory<SparkTestEnvironment>
         {
@@ -36,11 +38,9 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 
         public override string TestConfigVariable => "SPARK_TEST_CONFIG_FILE";
 
-        public override string SqlDataResourceLocation => ServerType == SparkServerType.Databricks
-            ? "Spark/Resources/SparkData-Databricks.sql"
-            : "Spark/Resources/SparkData.sql";
+        public override string SqlDataResourceLocation => "Spark/Resources/SparkData.sql";
 
-        public override int ExpectedColumnCount => ServerType == SparkServerType.Databricks ? 19 : 17;
+        public override int ExpectedColumnCount => 17;
 
         public override AdbcDriver CreateNewDriver() => new SparkDriver();
 
@@ -48,12 +48,6 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
         {
             return string.Format("CREATE TABLE {0} ({1})", tableName, columns);
         }
-
-        public string? GetValueForProtocolVersion(string? hiveValue, string? databrickValue) =>
-            ServerType != SparkServerType.Databricks && ((HiveServer2Connection)Connection).DataTypeConversion.HasFlag(DataTypeConversion.None) ? hiveValue : databrickValue;
-
-        public object? GetValueForProtocolVersion(object? hiveValue, object? databrickValue) =>
-            ServerType != SparkServerType.Databricks && ((HiveServer2Connection)Connection).DataTypeConversion.HasFlag(DataTypeConversion.None) ? hiveValue : databrickValue;
 
         public override string Delimiter => "`";
 
@@ -81,6 +75,10 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
             {
                 parameters.Add(SparkParameters.Token, testConfiguration.Token!);
             }
+            if (!string.IsNullOrEmpty(testConfiguration.AccessToken))
+            {
+                parameters.Add(SparkParameters.AccessToken, testConfiguration.AccessToken);
+            }
             if (!string.IsNullOrEmpty(testConfiguration.Username))
             {
                 parameters.Add(AdbcOptions.Username, testConfiguration.Username!);
@@ -101,21 +99,109 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
             {
                 parameters.Add(SparkParameters.DataTypeConv, testConfiguration.DataTypeConversion!);
             }
-            if (!string.IsNullOrEmpty(testConfiguration.TlsOptions))
-            {
-                parameters.Add(SparkParameters.TLSOptions, testConfiguration.TlsOptions!);
-            }
             if (!string.IsNullOrEmpty(testConfiguration.BatchSize))
             {
-                parameters.Add(HiveServer2Statement.Options.BatchSize, testConfiguration.BatchSize!);
+                parameters.Add(ApacheParameters.BatchSize, testConfiguration.BatchSize!);
             }
             if (!string.IsNullOrEmpty(testConfiguration.PollTimeMilliseconds))
             {
-                parameters.Add(HiveServer2Statement.Options.PollTimeMilliseconds, testConfiguration.PollTimeMilliseconds!);
+                parameters.Add(ApacheParameters.PollTimeMilliseconds, testConfiguration.PollTimeMilliseconds!);
             }
-            if (!string.IsNullOrEmpty(testConfiguration.HttpRequestTimeoutMilliseconds))
+            if (!string.IsNullOrEmpty(testConfiguration.ConnectTimeoutMilliseconds))
             {
-                parameters.Add(SparkParameters.HttpRequestTimeoutMilliseconds, testConfiguration.HttpRequestTimeoutMilliseconds!);
+                parameters.Add(SparkParameters.ConnectTimeoutMilliseconds, testConfiguration.ConnectTimeoutMilliseconds!);
+            }
+            if (!string.IsNullOrEmpty(testConfiguration.QueryTimeoutSeconds))
+            {
+                parameters.Add(ApacheParameters.QueryTimeoutSeconds, testConfiguration.QueryTimeoutSeconds!);
+            }
+            if (testConfiguration.HttpOptions != null)
+            {
+                if (testConfiguration.HttpOptions.Tls != null)
+                {
+                    TlsTestConfiguration tlsOptions = testConfiguration.HttpOptions.Tls;
+                    if (tlsOptions.Enabled.HasValue)
+                    {
+                        parameters.Add(HttpTlsOptions.IsTlsEnabled, tlsOptions.Enabled.Value.ToString());
+                    }
+                    if (tlsOptions.AllowSelfSigned.HasValue)
+                    {
+                        parameters.Add(HttpTlsOptions.AllowSelfSigned, tlsOptions.AllowSelfSigned.Value.ToString());
+                    }
+                    if (tlsOptions.AllowHostnameMismatch.HasValue)
+                    {
+                        parameters.Add(HttpTlsOptions.AllowHostnameMismatch, tlsOptions.AllowHostnameMismatch.Value.ToString());
+                    }
+                    if (tlsOptions.DisableServerCertificateValidation.HasValue)
+                    {
+                        parameters.Add(HttpTlsOptions.DisableServerCertificateValidation, tlsOptions.DisableServerCertificateValidation.Value.ToString());
+                    }
+                    if (!string.IsNullOrEmpty(tlsOptions.TrustedCertificatePath))
+                    {
+                        parameters.Add(HttpTlsOptions.TrustedCertificatePath, tlsOptions.TrustedCertificatePath!);
+                    }
+                }
+
+                // Add proxy configuration if provided
+                if (testConfiguration.HttpOptions.Proxy != null)
+                {
+                    ProxyTestConfiguration proxyOptions = testConfiguration.HttpOptions.Proxy;
+                    if (!string.IsNullOrEmpty(proxyOptions.UseProxy))
+                    {
+                        parameters.Add(HttpProxyOptions.UseProxy, proxyOptions.UseProxy!);
+                    }
+                    if (!string.IsNullOrEmpty(proxyOptions.ProxyHost))
+                    {
+                        parameters.Add(HttpProxyOptions.ProxyHost, proxyOptions.ProxyHost!);
+                    }
+                    if (proxyOptions.ProxyPort.HasValue)
+                    {
+                        parameters.Add(HttpProxyOptions.ProxyPort, proxyOptions.ProxyPort.Value.ToString());
+                    }
+                    if (!string.IsNullOrEmpty(proxyOptions.ProxyAuth))
+                    {
+                        parameters.Add(HttpProxyOptions.ProxyAuth, proxyOptions.ProxyAuth!);
+                    }
+                    if (!string.IsNullOrEmpty(proxyOptions.ProxyUid))
+                    {
+                        parameters.Add(HttpProxyOptions.ProxyUID, proxyOptions.ProxyUid!);
+                    }
+                    if (!string.IsNullOrEmpty(proxyOptions.ProxyPwd))
+                    {
+                        parameters.Add(HttpProxyOptions.ProxyPWD, proxyOptions.ProxyPwd!);
+                    }
+                    if (!string.IsNullOrEmpty(proxyOptions.ProxyIgnoreList))
+                    {
+                        parameters.Add(HttpProxyOptions.ProxyIgnoreList, proxyOptions.ProxyIgnoreList!);
+                    }
+                }
+            }
+            if (testConfiguration.StandardOptions != null)
+            {
+                if (testConfiguration.StandardOptions.Tls != null)
+                {
+                    TlsTestConfiguration tlsOptions = testConfiguration.StandardOptions.Tls;
+                    if (tlsOptions.Enabled.HasValue)
+                    {
+                        parameters.Add(StandardTlsOptions.IsTlsEnabled, tlsOptions.Enabled.Value.ToString());
+                    }
+                    if (tlsOptions.AllowSelfSigned.HasValue)
+                    {
+                        parameters.Add(StandardTlsOptions.AllowSelfSigned, tlsOptions.AllowSelfSigned.Value.ToString());
+                    }
+                    if (tlsOptions.AllowHostnameMismatch.HasValue)
+                    {
+                        parameters.Add(StandardTlsOptions.AllowHostnameMismatch, tlsOptions.AllowHostnameMismatch.Value.ToString());
+                    }
+                    if (tlsOptions.DisableServerCertificateValidation.HasValue)
+                    {
+                        parameters.Add(StandardTlsOptions.DisableServerCertificateValidation, tlsOptions.DisableServerCertificateValidation.Value.ToString());
+                    }
+                    if (!string.IsNullOrEmpty(tlsOptions.TrustedCertificatePath))
+                    {
+                        parameters.Add(StandardTlsOptions.TrustedCertificatePath, tlsOptions.TrustedCertificatePath!);
+                    }
+                }
             }
 
             return parameters;
@@ -123,17 +209,15 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 
         internal SparkServerType ServerType => ((SparkConnection)Connection).ServerType;
 
-        internal DataTypeConversion DataTypeConversion => ((SparkConnection)Connection).DataTypeConversion;
-
         public override string VendorVersion => ((HiveServer2Connection)Connection).VendorVersion;
 
-        public override bool SupportsDelete => ServerType == SparkServerType.Databricks;
+        public override bool SupportsDelete => false;
 
-        public override bool SupportsUpdate => ServerType == SparkServerType.Databricks;
+        public override bool SupportsUpdate => false;
 
-        public override bool SupportCatalogName => ServerType == SparkServerType.Databricks;
+        public override bool SupportCatalogName => false;
 
-        public override bool ValidateAffectedRows => ServerType == SparkServerType.Databricks;
+        public override bool ValidateAffectedRows => false;
 
         public override string GetInsertStatement(string tableName, string columnName, string? value) =>
             string.Format("INSERT INTO {0} ({1}) SELECT {2};", tableName, columnName, value ?? "NULL");
@@ -141,7 +225,7 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
         public override SampleDataBuilder GetSampleDataBuilder()
         {
             SampleDataBuilder sampleDataBuilder = new();
-            bool dataTypeIsFloat = ServerType == SparkServerType.Databricks || DataTypeConversion.HasFlag(DataTypeConversion.Scalar);
+            bool dataTypeIsFloat = DataTypeConversion.HasFlag(DataTypeConversion.Scalar);
             Type floatNetType = dataTypeIsFloat ? typeof(float) : typeof(double);
             Type floatArrowType = dataTypeIsFloat ? typeof(FloatType) : typeof(DoubleType);
             object floatValue;

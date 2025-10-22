@@ -23,6 +23,8 @@ on:
       - main
     paths:
       - ".github/workflows/nightly-verify.yml"
+      - "ci/docker/cpp-clang-latest.dockerfile"
+      - "ci/docker/cpp-gcc-latest.dockerfile"
       - "dev/release/verify-release-candidate.sh"
       - "dev/release/verify-release-candidate.ps1"
   schedule:
@@ -32,27 +34,34 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # 'bash' will expand to -eo pipefail
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   source:
     # For cron: only run on the main repo, not forks
     if: github.event_name != 'schedule' || github.repository == 'apache/arrow-adbc'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
           submodules: recursive
 
       - name: Prepare version
-        shell: bash
         run: |
           VERSION=$(grep 'set(ADBC_VERSION' c/cmake_modules/AdbcVersion.cmake | \
                       grep -E -o '[0-9]+\.[0-9]+\.[0-9]+')
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Create archive
-        shell: bash
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
@@ -64,7 +73,6 @@ jobs:
             apache-arrow-adbc-${VERSION}-rc0
 
       - name: Create fake GPG key
-        shell: bash
         run: |
           gpg \
             --quick-gen-key \
@@ -80,7 +88,6 @@ jobs:
             --export >> KEYS
 
       - name: Create sum/signature
-        shell: bash
         run: |
           gpg \
             --armor \
@@ -109,32 +116,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["macos-13", "macos-latest", "ubuntu-latest", "windows-latest"]
+        os: ["macos-15-intel", "macos-latest", "ubuntu-latest", "windows-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           path: arrow-adbc
           persist-credentials: false
 
       - name: Prepare version
-        shell: bash
         run: |
           VERSION=$(grep 'set(ADBC_VERSION' arrow-adbc/c/cmake_modules/AdbcVersion.cmake | \
                       grep -E -o '[0-9]+\.[0-9]+\.[0-9]+')
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: source
           path: ${{ github.workspace }}/apache-arrow-adbc-${{ env.VERSION }}-rc0/
 
       - name: Setup directory structure
-        shell: bash
         run: |
           mv apache-arrow-adbc-${{ env.VERSION }}-rc0/KEYS .
 
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f  # v3.2.0
         # The Unix script will set up conda itself
         if: matrix.os == 'windows-latest'
         with:
@@ -142,7 +147,6 @@ jobs:
           use-mamba: true
 
       - name: Work around ASAN issue (GH-1617)
-        shell: bash -l {0}
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo sysctl vm.mmap_rnd_bits=28
@@ -161,6 +165,9 @@ jobs:
           # Rust uses a lot of disk space, free up some space
           # https://github.com/actions/runner-images/issues/2840
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          # Required for macOS
+          export CXXFLAGS="${CXXFLAGS} -D_LIBCPP_DISABLE_AVAILABILITY"
+          echo "CXXFLAGS=${CXXFLAGS}"
           ./arrow-adbc/dev/release/verify-release-candidate.sh $VERSION 0
 
       - name: Verify
@@ -181,7 +188,7 @@ jobs:
     name: "Run Docker Tests"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           path: arrow-adbc
@@ -192,7 +199,58 @@ jobs:
           pushd arrow-adbc
           docker compose run --rm cpp-clang-latest
 
-      - name: python-debug
+      - name: cpp-gcc-latest
         run: |
           pushd arrow-adbc
-          docker compose run -e PYTHON=3.12 --rm python-debug
+          docker compose run --rm cpp-gcc-latest
+
+      - name: cpp-shared-no-common-entrypoints-test
+        run: |
+          pushd arrow-adbc
+          docker compose run --rm cpp-shared-no-common-entrypoints-test
+
+      - name: cpp-static-test
+        run: |
+          pushd arrow-adbc
+          docker compose run --rm cpp-static-test
+
+      - name: python-debug
+        run: |
+          # Need to set this or ASAN inside the container gets stuck
+          # printing a loop of DEADLYSIGNAL
+          sudo sysctl vm.mmap_rnd_bits=28
+          pushd arrow-adbc
+          docker compose run -e PYTHON=3.13 --rm python-debug
+
+  source-verify-docker:
+    name: "Verify Source (OS)/${{ matrix.os }} ${{ matrix.version }}"
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 2
+      matrix:
+        include:
+          - os: ubuntu
+            version: "22.04"
+          - os: ubuntu
+            version: "24.04"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          path: arrow-adbc
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Clean up disk space
+        run: |
+          # Rust uses a lot of disk space, free up some space
+          # https://github.com/actions/runner-images/issues/2840
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Verify
+        env:
+          OS: ${{ matrix.os }}
+          OS_VERSION: ${{ matrix.version }}
+        run: |
+          pushd arrow-adbc
+          env ${OS@U}=${OS_VERSION} docker compose run --rm verify-all-${OS}

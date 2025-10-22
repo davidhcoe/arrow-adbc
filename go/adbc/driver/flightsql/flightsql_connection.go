@@ -57,10 +57,63 @@ type connectionImpl struct {
 	supportInfo support
 }
 
+type flightSqlMetadata struct {
+	internal.DefaultXdbcMetadataBuilder
+	columnMetadata *flightsql.ColumnMetadata
+}
+
+func (md *flightSqlMetadata) SetMetadata(metadata arrow.Metadata) {
+	md.columnMetadata = &flightsql.ColumnMetadata{Data: &metadata}
+}
+
+func (md *flightSqlMetadata) SetXdbcScopeCatalog(b *array.StringBuilder) {
+	if v, ok := md.columnMetadata.CatalogName(); ok {
+		b.Append(v)
+	} else {
+		md.DefaultXdbcMetadataBuilder.SetXdbcScopeCatalog(b)
+	}
+}
+
+func (md *flightSqlMetadata) SetXdbcScopeSchema(b *array.StringBuilder) {
+	if v, ok := md.columnMetadata.SchemaName(); ok {
+		b.Append(v)
+	} else {
+		md.DefaultXdbcMetadataBuilder.SetXdbcScopeSchema(b)
+	}
+}
+
+func (md *flightSqlMetadata) SetXdbcScopeTable(b *array.StringBuilder) {
+	if v, ok := md.columnMetadata.TableName(); ok {
+		b.Append(v)
+	} else {
+		md.DefaultXdbcMetadataBuilder.SetXdbcScopeTable(b)
+	}
+}
+
+func (md *flightSqlMetadata) SetXdbcSqlDataType(columnType arrow.DataType, b *array.Int16Builder) {
+	b.Append(int16(internal.ToXdbcDataType(columnType)))
+}
+
+func (md *flightSqlMetadata) SetXdbcTypeName(b *array.StringBuilder) {
+	if v, ok := md.columnMetadata.TypeName(); ok {
+		b.Append(v)
+	} else {
+		md.DefaultXdbcMetadataBuilder.SetXdbcTypeName(b)
+	}
+}
+
+func (md *flightSqlMetadata) SetXdbcIsAutoincrement(builder *array.BooleanBuilder) {
+	if v, ok := md.columnMetadata.IsAutoIncrement(); ok {
+		builder.Append(v)
+	} else {
+		md.DefaultXdbcMetadataBuilder.SetXdbcIsAutoincrement(builder)
+	}
+}
+
 func (c *connectionImpl) GetObjects(ctx context.Context, depth adbc.ObjectDepth, catalog *string, dbSchema *string, tableName *string, columnName *string, tableType []string) (array.RecordReader, error) {
 	// To avoid an N+1 query problem, we assume result sets here will fit in memory and build up a single response.
 	g := internal.GetObjects{Ctx: ctx, Depth: depth, Catalog: catalog, DbSchema: dbSchema, TableName: tableName, ColumnName: columnName, TableType: tableType}
-	if err := g.Init(c.Base().Alloc, c.GetObjectsDbSchemas, c.GetObjectsTables); err != nil {
+	if err := g.Init(c.Base().Alloc, c.GetObjectsDbSchemas, c.GetObjectsTables, &flightSqlMetadata{}); err != nil {
 		return nil, err
 	}
 	defer g.Release()
@@ -555,7 +608,7 @@ func (c *connectionImpl) SetOptionDouble(key string, value float64) error {
 }
 
 func (c *connectionImpl) PrepareDriverInfo(ctx context.Context, infoCodes []adbc.InfoCode) error {
-	driverInfo := c.ConnectionImplBase.DriverInfo
+	driverInfo := c.DriverInfo
 
 	if len(infoCodes) == 0 {
 		infoCodes = driverInfo.InfoSupportedCodes()
@@ -595,7 +648,7 @@ func (c *connectionImpl) PrepareDriverInfo(ctx context.Context, infoCodes []adbc
 		}
 
 		for rdr.Next() {
-			rec := rdr.Record()
+			rec := rdr.RecordBatch()
 			field := rec.Column(0).(*array.Uint32)
 			info := rec.Column(1).(*array.DenseUnion)
 
@@ -689,7 +742,7 @@ func (c *connectionImpl) GetObjectsCatalogs(ctx context.Context, catalog *string
 
 	catalogs := make([]string, 0, numCatalogs)
 	for rdr.Next() {
-		arr := rdr.Record().Column(0).(*array.String)
+		arr := rdr.RecordBatch().Column(0).(*array.String)
 		for i := 0; i < arr.Len(); i++ {
 			// XXX: force copy since accessor is unsafe
 			catalogName := string([]byte(arr.Value(i)))
@@ -705,7 +758,7 @@ func (c *connectionImpl) GetObjectsCatalogs(ctx context.Context, catalog *string
 }
 
 // Helper function to build up a map of catalogs to DB schemas
-func (c *connectionImpl) GetObjectsDbSchemas(ctx context.Context, depth adbc.ObjectDepth, catalog *string, dbSchema *string, metadataRecords []internal.Metadata) (result map[string][]string, err error) {
+func (c *connectionImpl) GetObjectsDbSchemas(ctx context.Context, depth adbc.ObjectDepth, catalog *string, dbSchema *string) (result map[string][]string, err error) {
 	if depth == adbc.ObjectDepthCatalogs {
 		return
 	}
@@ -728,9 +781,9 @@ func (c *connectionImpl) GetObjectsDbSchemas(ctx context.Context, depth adbc.Obj
 
 	for rdr.Next() {
 		// Nullable
-		catalog := rdr.Record().Column(0).(*array.String)
+		catalog := rdr.RecordBatch().Column(0).(*array.String)
 		// Non-nullable
-		dbSchema := rdr.Record().Column(1).(*array.String)
+		dbSchema := rdr.RecordBatch().Column(1).(*array.String)
 
 		for i := 0; i < catalog.Len(); i++ {
 			catalogName := ""
@@ -747,7 +800,7 @@ func (c *connectionImpl) GetObjectsDbSchemas(ctx context.Context, depth adbc.Obj
 	return
 }
 
-func (c *connectionImpl) GetObjectsTables(ctx context.Context, depth adbc.ObjectDepth, catalog *string, dbSchema *string, tableName *string, columnName *string, tableType []string, metadataRecords []internal.Metadata) (result internal.SchemaToTableInfo, err error) {
+func (c *connectionImpl) GetObjectsTables(ctx context.Context, depth adbc.ObjectDepth, catalog *string, dbSchema *string, tableName *string, columnName *string, tableType []string) (result internal.SchemaToTableInfo, err error) {
 	if depth == adbc.ObjectDepthCatalogs || depth == adbc.ObjectDepthDBSchemas {
 		return
 	}
@@ -781,11 +834,11 @@ func (c *connectionImpl) GetObjectsTables(ctx context.Context, depth adbc.Object
 
 	for rdr.Next() {
 		// Nullable
-		catalog := rdr.Record().Column(0).(*array.String)
-		dbSchema := rdr.Record().Column(1).(*array.String)
+		catalog := rdr.RecordBatch().Column(0).(*array.String)
+		dbSchema := rdr.RecordBatch().Column(1).(*array.String)
 		// Non-nullable
-		tableName := rdr.Record().Column(2).(*array.String)
-		tableType := rdr.Record().Column(3).(*array.String)
+		tableName := rdr.RecordBatch().Column(2).(*array.String)
+		tableType := rdr.RecordBatch().Column(3).(*array.String)
 
 		for i := 0; i < catalog.Len(); i++ {
 			catalogName := ""
@@ -803,7 +856,7 @@ func (c *connectionImpl) GetObjectsTables(ctx context.Context, depth adbc.Object
 
 			var schema *arrow.Schema
 			if includeSchema {
-				reader, err := ipc.NewReader(bytes.NewReader(rdr.Record().Column(4).(*array.Binary).Value(i)))
+				reader, err := ipc.NewReader(bytes.NewReader(rdr.RecordBatch().Column(4).(*array.Binary).Value(i)))
 				if err != nil {
 					return nil, adbc.Error{
 						Msg:  err.Error(),
@@ -1078,6 +1131,7 @@ func (c *connectionImpl) Close() error {
 		}
 	}
 
+	c.clientCache.Purge()
 	err = c.cl.Close()
 	c.cl = nil
 	return adbcFromFlightStatus(err, "Close")

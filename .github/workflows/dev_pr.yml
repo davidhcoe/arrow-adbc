@@ -31,12 +31,17 @@ permissions:
   issues: write
   pull-requests: write
 
+defaults:
+  run:
+    # 'bash' will expand to -eo pipefail
+    shell: bash
+
 jobs:
   process:
     name: Process
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
@@ -47,7 +52,7 @@ jobs:
         run: |
           ./.github/workflows/dev_pr/milestone.sh "${GITHUB_REPOSITORY}" ${{github.event.number}}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           path: pr_checkout
@@ -58,11 +63,15 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          python .github/workflows/dev_pr/title_check.py $(pwd)/pr_checkout "$PR_TITLE"
+          python dev/adbc_dev/title_check.py $(pwd)/pr_checkout "$PR_TITLE"
 
       # Pings make it into the commit message where they annoy the user every
       # time the commit gets pushed somewhere
       - name: Check PR body for pings
+        # Don't check this if it's dependabot - dependabot doesn't ping users
+        # and it tends to include things that look like pings (but are
+        # escaped)
+        if: github.actor != 'dependabot[bot]'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |

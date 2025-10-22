@@ -29,6 +29,16 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore(go/adbc): "
+    groups:
+      "golang.org/x":
+        applies-to: version-updates
+        patterns:
+          - "golang.org/x/*"
+      opentelemetry:
+        applies-to: version-updates
+        patterns:
+          - "go.opentelemetry.io/otel"
+          - "go.opentelemetry.io/otel/*"
   - package-ecosystem: "maven"
     directory: "/java/"
     schedule:
@@ -51,3 +61,15 @@ updates:
       - dependency-name: "System.*"
         update-types:
           - "version-update:semver-major"
+  - package-ecosystem: "cargo"
+    directory: "/rust/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(rust): "
+    groups:
+      arrow-datafusion:
+        applies-to: version-updates
+        patterns:
+          - "arrow-*"
+          - "datafusion*"

@@ -24,20 +24,26 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/driver/internal"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.30.0"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 )
 
 const (
-	ConnectionMessageOptionUnknown     = "Unknown connection option"
-	ConnectionMessageOptionUnsupported = "Unsupported connection option"
-	ConnectionMessageCannotCommit      = "Cannot commit when autocommit is enabled"
-	ConnectionMessageCannotRollback    = "Cannot rollback when autocommit is enabled"
+	ConnectionMessageOptionUnknown              = "Unknown connection option"
+	ConnectionMessageOptionUnsupported          = "Unsupported connection option"
+	ConnectionMessageCannotCommit               = "Cannot commit when autocommit is enabled"
+	ConnectionMessageCannotRollback             = "Cannot rollback when autocommit is enabled"
+	ConnectionMessageTraceParentIncorrectFormat = "Incorrect or unsupported trace parent format"
 )
 
 // ConnectionImpl is an interface that drivers implement to provide
@@ -45,6 +51,7 @@ const (
 type ConnectionImpl interface {
 	adbc.Connection
 	adbc.GetSetOptions
+	adbc.OTelTracing
 	Base() *ConnectionImplBase
 }
 
@@ -108,9 +115,12 @@ type ConnectionImplBase struct {
 	ErrorHelper ErrorHelper
 	DriverInfo  *DriverInfo
 	Logger      *slog.Logger
+	Tracer      trace.Tracer
 
 	Autocommit bool
 	Closed     bool
+
+	traceParent string
 }
 
 // NewConnectionImplBase instantiates ConnectionImplBase.
@@ -123,8 +133,10 @@ func NewConnectionImplBase(database *DatabaseImplBase) ConnectionImplBase {
 		ErrorHelper: database.ErrorHelper,
 		DriverInfo:  database.DriverInfo,
 		Logger:      database.Logger,
+		Tracer:      database.Tracer,
 		Autocommit:  true,
 		Closed:      false,
+		traceParent: database.traceParent,
 	}
 }
 
@@ -140,7 +152,9 @@ func (base *ConnectionImplBase) Rollback(context.Context) error {
 	return base.ErrorHelper.Errorf(adbc.StatusNotImplemented, "Rollback")
 }
 
-func (base *ConnectionImplBase) GetInfo(ctx context.Context, infoCodes []adbc.InfoCode) (array.RecordReader, error) {
+func (base *ConnectionImplBase) GetInfo(ctx context.Context, infoCodes []adbc.InfoCode) (reader array.RecordReader, err error) {
+	_, span := internal.StartSpan(ctx, "ConnectionImplBase.GetInfo", base)
+	defer internal.EndSpan(span, err)
 
 	if len(infoCodes) == 0 {
 		infoCodes = base.DriverInfo.InfoSupportedCodes()
@@ -190,13 +204,16 @@ func (base *ConnectionImplBase) GetInfo(ctx context.Context, infoCodes []adbc.In
 				boolInfoBldr.AppendNull()
 			}
 		default:
-			return nil, fmt.Errorf("no defined type code for info_value of type %T", v)
+			err = fmt.Errorf("no defined type code for info_value of type %T", v)
+			return nil, err
 		}
 	}
 
-	final := bldr.NewRecord()
+	final := bldr.NewRecordBatch()
 	defer final.Release()
-	return array.NewRecordReader(adbc.GetInfoSchema, []arrow.Record{final})
+
+	reader, err = array.NewRecordReader(adbc.GetInfoSchema, []arrow.RecordBatch{final})
+	return reader, err
 }
 
 func (base *ConnectionImplBase) Close() error {
@@ -224,6 +241,10 @@ func (base *ConnectionImplBase) ReadPartition(ctx context.Context, serializedPar
 }
 
 func (base *ConnectionImplBase) GetOption(key string) (string, error) {
+	switch strings.ToLower(key) {
+	case adbc.OptionKeyTelemetryTraceParent:
+		return base.GetTraceParent(), nil
+	}
 	return "", base.ErrorHelper.Errorf(adbc.StatusNotFound, "%s '%s'", ConnectionMessageOptionUnknown, key)
 }
 
@@ -240,9 +261,12 @@ func (base *ConnectionImplBase) GetOptionInt(key string) (int64, error) {
 }
 
 func (base *ConnectionImplBase) SetOption(key string, val string) error {
-	switch key {
+	switch strings.ToLower(key) {
 	case adbc.OptionKeyAutoCommit:
 		return base.ErrorHelper.Errorf(adbc.StatusNotImplemented, "%s '%s'", ConnectionMessageOptionUnsupported, key)
+	case adbc.OptionKeyTelemetryTraceParent:
+		base.SetTraceParent(strings.TrimSpace(val))
+		return nil
 	}
 	return base.ErrorHelper.Errorf(adbc.StatusNotImplemented, "%s '%s'", ConnectionMessageOptionUnknown, key)
 }
@@ -333,11 +357,45 @@ func (b *ConnectionBuilder) Connection() Connection {
 	return conn
 }
 
+func (cnxn *ConnectionImplBase) GetTraceParent() string {
+	return cnxn.traceParent
+}
+
+func (cnxn *ConnectionImplBase) SetTraceParent(traceParent string) {
+	cnxn.traceParent = traceParent
+}
+
+func (cnxn *ConnectionImplBase) StartSpan(
+	ctx context.Context,
+	spanName string,
+	opts ...trace.SpanStartOption,
+) (context.Context, trace.Span) {
+	ctx, _ = maybeAddTraceParent(ctx, cnxn, nil)
+	return cnxn.Tracer.Start(ctx, spanName, opts...)
+}
+
+func (cnxn *ConnectionImplBase) GetInitialSpanAttributes() []attribute.KeyValue {
+	return getInitialSpanAttributes(cnxn.DriverInfo)
+}
+
+func getInitialSpanAttributes(driverInfo *DriverInfo) []attribute.KeyValue {
+	var attrs []attribute.KeyValue
+	var systemName = driverInfo.GetName()
+	if value, ok := driverInfo.GetInfoForInfoCode(adbc.InfoVendorName); ok {
+		if s, ok := value.(string); ok {
+			systemName = s
+		}
+	}
+	attrs = append(attrs, semconv.DBSystemNameKey.String(systemName))
+
+	return attrs
+}
+
 // GetObjects implements Connection.
 func (cnxn *connection) GetObjects(ctx context.Context, depth adbc.ObjectDepth, catalog *string, dbSchema *string, tableName *string, columnName *string, tableType []string) (array.RecordReader, error) {
 	helper := cnxn.dbObjectsEnumerator
 
-	// If the dbObjectsEnumerator has not been set, then the driver implementor has elected to provide their own GetObjects implementation
+	// If the dbObjectsEnumerator has not been set, then the driver implementer has elected to provide their own GetObjects implementation
 	if helper == nil {
 		return cnxn.ConnectionImpl.GetObjects(ctx, depth, catalog, dbSchema, tableName, columnName, tableType)
 	}
@@ -526,9 +584,9 @@ func (cnxn *connection) GetTableTypes(ctx context.Context) (array.RecordReader, 
 	defer bldr.Release()
 
 	bldr.Field(0).(*array.StringBuilder).AppendValues(tableTypes, nil)
-	final := bldr.NewRecord()
+	final := bldr.NewRecordBatch()
 	defer final.Release()
-	return array.NewRecordReader(adbc.TableTypesSchema, []arrow.Record{final})
+	return array.NewRecordReader(adbc.TableTypesSchema, []arrow.RecordBatch{final})
 }
 
 func (cnxn *connection) Commit(ctx context.Context) error {
@@ -686,10 +744,10 @@ CATALOGLOOP:
 		}
 	}
 
-	rec := bldr.NewRecord()
+	rec := bldr.NewRecordBatch()
 	defer rec.Release()
 
-	return array.NewRecordReader(adbc.GetObjectsSchema, []arrow.Record{rec})
+	return array.NewRecordReader(adbc.GetObjectsSchema, []arrow.RecordBatch{rec})
 }
 
 func PatternToNamedArg(name string, pattern *string) sql.NamedArg {
@@ -697,51 +755,6 @@ func PatternToNamedArg(name string, pattern *string) sql.NamedArg {
 		return sql.Named(name, "%")
 	}
 	return sql.Named(name, *pattern)
-}
-
-func ToXdbcDataType(dt arrow.DataType) (xdbcType internal.XdbcDataType) {
-	switch dt.ID() {
-	case arrow.EXTENSION:
-		return ToXdbcDataType(dt.(arrow.ExtensionType).StorageType())
-	case arrow.DICTIONARY:
-		return ToXdbcDataType(dt.(*arrow.DictionaryType).ValueType)
-	case arrow.RUN_END_ENCODED:
-		return ToXdbcDataType(dt.(*arrow.RunEndEncodedType).Encoded())
-	case arrow.INT8, arrow.UINT8:
-		return internal.XdbcDataType_XDBC_TINYINT
-	case arrow.INT16, arrow.UINT16:
-		return internal.XdbcDataType_XDBC_SMALLINT
-	case arrow.INT32, arrow.UINT32:
-		return internal.XdbcDataType_XDBC_SMALLINT
-	case arrow.INT64, arrow.UINT64:
-		return internal.XdbcDataType_XDBC_BIGINT
-	case arrow.FLOAT32, arrow.FLOAT16, arrow.FLOAT64:
-		return internal.XdbcDataType_XDBC_FLOAT
-	case arrow.DECIMAL, arrow.DECIMAL256:
-		return internal.XdbcDataType_XDBC_DECIMAL
-	case arrow.STRING, arrow.LARGE_STRING:
-		return internal.XdbcDataType_XDBC_VARCHAR
-	case arrow.BINARY, arrow.LARGE_BINARY:
-		return internal.XdbcDataType_XDBC_BINARY
-	case arrow.FIXED_SIZE_BINARY:
-		return internal.XdbcDataType_XDBC_BINARY
-	case arrow.BOOL:
-		return internal.XdbcDataType_XDBC_BIT
-	case arrow.TIME32, arrow.TIME64:
-		return internal.XdbcDataType_XDBC_TIME
-	case arrow.DATE32, arrow.DATE64:
-		return internal.XdbcDataType_XDBC_DATE
-	case arrow.TIMESTAMP:
-		return internal.XdbcDataType_XDBC_TIMESTAMP
-	case arrow.DENSE_UNION, arrow.SPARSE_UNION:
-		return internal.XdbcDataType_XDBC_VARBINARY
-	case arrow.LIST, arrow.LARGE_LIST, arrow.FIXED_SIZE_LIST:
-		return internal.XdbcDataType_XDBC_VARBINARY
-	case arrow.STRUCT, arrow.MAP:
-		return internal.XdbcDataType_XDBC_VARBINARY
-	default:
-		return internal.XdbcDataType_XDBC_UNKNOWN_TYPE
-	}
 }
 
 // Nullable wraps a value and returns a pointer to the value, which is
@@ -758,6 +771,39 @@ func ValueOrZero[T any](val *T) T {
 		return res
 	}
 	return *val
+}
+
+func maybeAddTraceParent(ctx context.Context, cnxn adbc.OTelTracing, st adbc.OTelTracing) (context.Context, error) {
+	var traceParentStr string
+	if st != nil && st.GetTraceParent() != "" {
+		traceParentStr = st.GetTraceParent()
+	} else if cnxn != nil && cnxn.GetTraceParent() != "" {
+		traceParentStr = cnxn.GetTraceParent()
+	}
+	if traceParentStr != "" {
+		spanContext, err := propagateTraceParent(ctx, traceParentStr)
+		if err != nil {
+			return ctx, err
+		}
+		ctx = trace.ContextWithRemoteSpanContext(ctx, spanContext)
+	}
+	return ctx, nil
+}
+
+func propagateTraceParent(ctx context.Context, traceParentStr string) (trace.SpanContext, error) {
+	if strings.TrimSpace(traceParentStr) == "" {
+		return trace.SpanContext{}, errors.New("traceparent string is empty")
+	}
+
+	propagator := propagation.TraceContext{}
+	carrier := propagation.MapCarrier{"traceparent": traceParentStr}
+	extractedContext := propagator.Extract(ctx, carrier)
+
+	spanContext := trace.SpanContextFromContext(extractedContext)
+	if !spanContext.IsValid() {
+		return trace.SpanContext{}, errors.New("invalid traceparent string")
+	}
+	return spanContext, nil
 }
 
 var _ ConnectionImpl = (*ConnectionImplBase)(nil)

@@ -18,105 +18,51 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using Apache.Arrow.Adbc.Drivers.Apache.Spark;
-using Apache.Arrow.Adbc.Tests.Xunit;
+using Apache.Arrow.Adbc.Tests.Drivers.Apache.Common;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 {
-    /// <summary>
-    /// Class for testing the Snowflake ADBC driver connection tests.
-    /// </summary>
-    /// <remarks>
-    /// Tests are ordered to ensure data is created for the other
-    /// queries to run.
-    /// </remarks>
-    [TestCaseOrderer("Apache.Arrow.Adbc.Tests.Xunit.TestOrderer", "Apache.Arrow.Adbc.Tests")]
-    public class StatementTests : TestBase<SparkTestConfiguration, SparkTestEnvironment>
+    public class StatementTests : Common.StatementTests<SparkTestConfiguration, SparkTestEnvironment>
     {
-        private static List<string> DefaultTableTypes => new() { "TABLE", "VIEW" };
-
-        public StatementTests(ITestOutputHelper? outputHelper) : base(outputHelper, new SparkTestEnvironment.Factory())
+        public StatementTests(ITestOutputHelper? outputHelper)
+            : base(outputHelper, new SparkTestEnvironment.Factory())
         {
-            Skip.IfNot(Utils.CanExecuteTestConfig(TestConfigVariable));
         }
 
-        /// <summary>
-        /// Validates if the SetOption handle valid/invalid data correctly for the PollTime option.
-        /// </summary>
         [SkippableTheory]
-        [InlineData("-1", true)]
-        [InlineData("zero", true)]
-        [InlineData("-2147483648", true)]
-        [InlineData("2147483648", true)]
-        [InlineData("0")]
-        [InlineData("1")]
-        [InlineData("2147483647")]
-        public void CanSetOptionPollTime(string value, bool throws = false)
+        [ClassData(typeof(LongRunningStatementTimeoutTestData))]
+        internal override void StatementTimeoutTest(StatementWithExceptions statementWithExceptions)
         {
-            var testConfiguration = TestConfiguration.Clone() as SparkTestConfiguration;
-            testConfiguration!.PollTimeMilliseconds = value;
-            if (throws)
-            {
-                Assert.Throws<ArgumentOutOfRangeException>(() => NewConnection(testConfiguration).CreateStatement());
-            }
-
-            AdbcStatement statement = NewConnection().CreateStatement();
-            if (throws)
-            {
-                Assert.Throws<ArgumentOutOfRangeException>(() => statement.SetOption(SparkStatement.Options.PollTimeMilliseconds, value));
-            }
-            else
-            {
-                statement.SetOption(SparkStatement.Options.PollTimeMilliseconds, value);
-            }
+            base.StatementTimeoutTest(statementWithExceptions);
         }
 
-        /// <summary>
-        /// Validates if the SetOption handle valid/invalid data correctly for the BatchSize option.
-        /// </summary>
         [SkippableTheory]
-        [InlineData("-1", true)]
-        [InlineData("one", true)]
-        [InlineData("-2147483648", true)]
-        [InlineData("2147483648", false)]
-        [InlineData("9223372036854775807", false)]
-        [InlineData("9223372036854775808", true)]
-        [InlineData("0", true)]
-        [InlineData("1")]
-        [InlineData("2147483647")]
-        public void CanSetOptionBatchSize(string value, bool throws = false)
+        [InlineData(LongRunningStatementTimeoutTestData.LongRunningQuery)]
+        internal override async Task CanCancelStatementTest(string query)
         {
-            var testConfiguration = TestConfiguration.Clone() as SparkTestConfiguration;
-            testConfiguration!.BatchSize = value;
-            if (throws)
-            {
-                Assert.Throws<ArgumentOutOfRangeException>(() => NewConnection(testConfiguration).CreateStatement());
-            }
+            Skip.If(TestConfiguration.Type == "standard", "Spark 'standard' transport does not support cancellation test.");
+            await base.CanCancelStatementTest(query);
+        }
 
-            AdbcStatement statement = NewConnection().CreateStatement();
-            if (throws)
+        internal class LongRunningStatementTimeoutTestData : ShortRunningStatementTimeoutTestData
+        {
+            internal const string LongRunningQuery = "SELECT COUNT(*) AS total_count\nFROM (\n  SELECT t1.id AS id1, t2.id AS id2\n  FROM RANGE(1000000) t1\n  CROSS JOIN RANGE(100000) t2\n) subquery\nWHERE MOD(id1 + id2, 2) = 0";
+            public LongRunningStatementTimeoutTestData()
             {
-                Assert.Throws<ArgumentOutOfRangeException>(() => statement!.SetOption(SparkStatement.Options.BatchSize, value));
-            }
-            else
-            {
-                statement.SetOption(SparkStatement.Options.BatchSize, value);
+
+                Add(new(5, LongRunningQuery, typeof(TimeoutException)));
+                Add(new(null, LongRunningQuery, typeof(TimeoutException)));
+                Add(new(0, LongRunningQuery, null));
             }
         }
 
-        /// <summary>
-        /// Validates if the driver can execute update statements.
-        /// </summary>
-        [SkippableFact, Order(1)]
-        public async Task CanInteractUsingSetOptions()
+        protected override void PrepareCreateTableWithPrimaryKeys(out string sqlUpdate, out string tableNameParent, out string fullTableNameParent, out IReadOnlyList<string> primaryKeys)
         {
-            const string columnName = "INDEX";
-            Statement.SetOption(SparkStatement.Options.PollTimeMilliseconds, "100");
-            Statement.SetOption(SparkStatement.Options.BatchSize, "10");
-            using TemporaryTable temporaryTable = await NewTemporaryTableAsync(Statement, $"{columnName} INT");
-            await ValidateInsertSelectDeleteSingleValueAsync(temporaryTable.TableName, columnName, 1);
+            CreateNewTableName(out tableNameParent, out fullTableNameParent);
+            sqlUpdate = $"CREATE TABLE IF NOT EXISTS {fullTableNameParent} (INDEX INT, NAME STRING, PRIMARY KEY (INDEX, NAME))";
+            primaryKeys = ["index", "name"];
         }
     }
 }

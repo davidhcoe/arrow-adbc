@@ -17,12 +17,10 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.Security;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,6 +30,7 @@ using Apache.Hive.Service.Rpc.Thrift;
 using Thrift;
 using Thrift.Protocol;
 using Thrift.Transport;
+using Thrift.Transport.Client;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
@@ -40,8 +39,11 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
         private const string BasicAuthenticationScheme = "Basic";
         private const string BearerAuthenticationScheme = "Bearer";
 
+        protected readonly HiveServer2ProxyConfigurator _proxyConfigurator;
+
         public SparkHttpConnection(IReadOnlyDictionary<string, string> properties) : base(properties)
         {
+            _proxyConfigurator = HiveServer2ProxyConfigurator.FromProperties(properties);
         }
 
         protected override void ValidateAuthentication()
@@ -51,7 +53,10 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
             Properties.TryGetValue(AdbcOptions.Username, out string? username);
             Properties.TryGetValue(AdbcOptions.Password, out string? password);
             Properties.TryGetValue(SparkParameters.AuthType, out string? authType);
-            bool isValidAuthType = AuthTypeParser.TryParse(authType, out SparkAuthType authTypeValue);
+            if (!SparkAuthTypeParser.TryParse(authType, out SparkAuthType authTypeValue))
+            {
+                throw new ArgumentOutOfRangeException(SparkParameters.AuthType, authType, $"Unsupported {SparkParameters.AuthType} value.");
+            }
             switch (authTypeValue)
             {
                 case SparkAuthType.Token:
@@ -80,9 +85,22 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                             $"Parameters must include valid authentiation settings. Please provide either '{SparkParameters.Token}'; or '{AdbcOptions.Username}' and '{AdbcOptions.Password}'.",
                             nameof(Properties));
                     break;
+
+                case SparkAuthType.OAuth:
+                    ValidateOAuthParameters();
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(SparkParameters.AuthType, authType, $"Unsupported {SparkParameters.AuthType} value.");
             }
+        }
+
+        protected virtual void ValidateOAuthParameters()
+        {
+            Properties.TryGetValue(SparkParameters.AccessToken, out string? access_token);
+            if (string.IsNullOrWhiteSpace(access_token))
+                throw new ArgumentException(
+                    $"Parameter '{SparkParameters.AuthType}' is set to '{SparkAuthTypeConstants.OAuth}' but parameter '{SparkParameters.AccessToken}' is not set. Please provide a value for '{SparkParameters.AccessToken}'.",
+                    nameof(Properties));
         }
 
         protected override void ValidateConnection()
@@ -110,7 +128,7 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
             Properties.TryGetValue(SparkParameters.Path, out string? path);
             _ = new HttpClient()
             {
-                BaseAddress = GetBaseAddress(uri, hostName, path, port)
+                BaseAddress = GetBaseAddress(uri, hostName, path, port, SparkParameters.HostName, TlsOptions.IsTlsEnabled)
             };
         }
 
@@ -118,77 +136,69 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
         {
             Properties.TryGetValue(SparkParameters.DataTypeConv, out string? dataTypeConv);
             DataTypeConversion = DataTypeConversionParser.Parse(dataTypeConv);
-            Properties.TryGetValue(SparkParameters.TLSOptions, out string? tlsOptions);
-            TlsOptions = TlsOptionsParser.Parse(tlsOptions);
-            Properties.TryGetValue(SparkParameters.HttpRequestTimeoutMilliseconds, out string? requestTimeoutMs);
-            if (requestTimeoutMs != null)
+            Properties.TryGetValue(SparkParameters.ConnectTimeoutMilliseconds, out string? connectTimeoutMs);
+            if (connectTimeoutMs != null)
             {
-                HttpRequestTimeout = int.TryParse(requestTimeoutMs, NumberStyles.Integer, CultureInfo.InvariantCulture, out int requestTimeoutMsValue) && requestTimeoutMsValue > 0
-                    ? requestTimeoutMsValue
-                    : throw new ArgumentOutOfRangeException(SparkParameters.HttpRequestTimeoutMilliseconds, requestTimeoutMs, $"must be a value between 1 .. {int.MaxValue}. default is 30000 milliseconds.");
+                ConnectTimeoutMilliseconds = int.TryParse(connectTimeoutMs, NumberStyles.Integer, CultureInfo.InvariantCulture, out int connectTimeoutMsValue) && (connectTimeoutMsValue >= 0)
+                    ? connectTimeoutMsValue
+                    : throw new ArgumentOutOfRangeException(SparkParameters.ConnectTimeoutMilliseconds, connectTimeoutMs, $"must be a value of 0 (infinite) or between 1 .. {int.MaxValue}. default is 30000 milliseconds.");
             }
+
+            TlsOptions = HiveServer2TlsImpl.GetHttpTlsOptions(Properties);
         }
 
-        internal override IArrowArrayStream NewReader<T>(T statement, Schema schema) => new HiveServer2Reader(statement, schema, dataTypeConversion: statement.Connection.DataTypeConversion);
+        internal override IArrowArrayStream NewReader<T>(
+            T statement,
+            Schema schema,
+            IResponse response,
+            TGetResultSetMetadataResp? metadataResp = null) => new HiveServer2Reader(statement, schema, response, dataTypeConversion: statement.Connection.DataTypeConversion);
 
-        protected override Task<TTransport> CreateTransportAsync()
+        protected virtual HttpMessageHandler CreateHttpHandler()
         {
-            foreach (var property in Properties.Keys)
-            {
-                Trace.TraceError($"key = {property} value = {Properties[property]}");
-            }
+            return HiveServer2TlsImpl.NewHttpClientHandler(TlsOptions, _proxyConfigurator);
+        }
 
+        protected override TTransport CreateTransport()
+        {
             // Assumption: parameters have already been validated.
             Properties.TryGetValue(SparkParameters.HostName, out string? hostName);
             Properties.TryGetValue(SparkParameters.Path, out string? path);
             Properties.TryGetValue(SparkParameters.Port, out string? port);
             Properties.TryGetValue(SparkParameters.AuthType, out string? authType);
-            bool isValidAuthType = AuthTypeParser.TryParse(authType, out SparkAuthType authTypeValue);
-            Properties.TryGetValue(SparkParameters.Token, out string? token);
-            Properties.TryGetValue(AdbcOptions.Username, out string? username);
-            Properties.TryGetValue(AdbcOptions.Password, out string? password);
+            if (!SparkAuthTypeParser.TryParse(authType, out SparkAuthType authTypeValue))
+            {
+                throw new ArgumentOutOfRangeException(SparkParameters.AuthType, authType, $"Unsupported {SparkParameters.AuthType} value.");
+            }
             Properties.TryGetValue(AdbcOptions.Uri, out string? uri);
 
-            Uri baseAddress = GetBaseAddress(uri, hostName, path, port);
-            AuthenticationHeaderValue? authenticationHeaderValue = GetAuthenticationHeaderValue(authTypeValue, token, username, password);
+            Uri baseAddress = GetBaseAddress(uri, hostName, path, port, SparkParameters.HostName, TlsOptions.IsTlsEnabled);
+            AuthenticationHeaderValue? authenticationHeaderValue = GetAuthenticationHeaderValue(authTypeValue);
 
-            HttpClientHandler httpClientHandler = NewHttpClientHandler();
-            HttpClient httpClient = new(httpClientHandler);
+            HttpClient httpClient = new(CreateHttpHandler());
             httpClient.BaseAddress = baseAddress;
             httpClient.DefaultRequestHeaders.Authorization = authenticationHeaderValue;
-            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(s_userAgent);
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(GetUserAgent());
             httpClient.DefaultRequestHeaders.AcceptEncoding.Clear();
             httpClient.DefaultRequestHeaders.AcceptEncoding.Add(new StringWithQualityHeaderValue("identity"));
             httpClient.DefaultRequestHeaders.ExpectContinue = false;
 
             TConfiguration config = new();
-            ThriftHttpTransport transport = new(httpClient, config)
+            THttpTransport transport = new(httpClient, config)
             {
-                ConnectTimeout = HttpRequestTimeout,
+                // This value can only be set before the first call/request. So if a new value for query timeout
+                // is set, we won't be able to update the value. Setting to ~infinite and relying on cancellation token
+                // to ensure cancelled correctly.
+                ConnectTimeout = int.MaxValue,
             };
-            return Task.FromResult<TTransport>(transport);
+            return transport;
         }
 
-        private HttpClientHandler NewHttpClientHandler()
+        protected virtual AuthenticationHeaderValue? GetAuthenticationHeaderValue(SparkAuthType authType)
         {
-            HttpClientHandler httpClientHandler = new();
-            if (TlsOptions != HiveServer2TlsOption.Empty)
-            {
-                httpClientHandler.ServerCertificateCustomValidationCallback = (request, certificate, chain, policyErrors) =>
-                {
-                    if (policyErrors == SslPolicyErrors.None) return true;
-
-                    return
-                       (!policyErrors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors) || TlsOptions.HasFlag(HiveServer2TlsOption.AllowSelfSigned))
-                    && (!policyErrors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch) || TlsOptions.HasFlag(HiveServer2TlsOption.AllowHostnameMismatch));
-                };
-            }
-
-            return httpClientHandler;
-        }
-
-        private static AuthenticationHeaderValue? GetAuthenticationHeaderValue(SparkAuthType authType, string? token, string? username, string? password)
-        {
+            Properties.TryGetValue(SparkParameters.Token, out string? token);
+            Properties.TryGetValue(SparkParameters.AccessToken, out string? access_token);
+            Properties.TryGetValue(AdbcOptions.Username, out string? username);
+            Properties.TryGetValue(AdbcOptions.Password, out string? password);
             if (!string.IsNullOrEmpty(token) && (authType == SparkAuthType.Empty || authType == SparkAuthType.Token))
             {
                 return new AuthenticationHeaderValue(BearerAuthenticationScheme, token);
@@ -201,6 +211,10 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
             {
                 return new AuthenticationHeaderValue(BasicAuthenticationScheme, Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:")));
             }
+            else if (!string.IsNullOrEmpty(access_token) && authType == SparkAuthType.OAuth)
+            {
+                return new AuthenticationHeaderValue(BearerAuthenticationScheme, access_token);
+            }
             else if (authType == SparkAuthType.None)
             {
                 return null;
@@ -211,64 +225,66 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
             }
         }
 
-        protected override async Task<TProtocol> CreateProtocolAsync(TTransport transport)
+        protected override async Task<TProtocol> CreateProtocolAsync(TTransport transport, CancellationToken cancellationToken = default)
         {
-            Trace.TraceError($"create protocol with {Properties.Count} properties.");
-
-            if (!transport.IsOpen) await transport.OpenAsync(CancellationToken.None);
+            if (!transport.IsOpen) await transport.OpenAsync(cancellationToken);
             return new TBinaryProtocol(transport);
         }
 
         protected override TOpenSessionReq CreateSessionRequest()
         {
-            var req = new TOpenSessionReq(TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V11)
+            var req = new TOpenSessionReq
             {
+                Client_protocol = TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V10,
                 CanUseMultipleCatalogs = true,
             };
             return req;
         }
 
-        protected override Task<TGetResultSetMetadataResp> GetResultSetMetadataAsync(TGetSchemasResp response) =>
-            GetResultSetMetadataAsync(response.OperationHandle, Client);
-        protected override Task<TGetResultSetMetadataResp> GetResultSetMetadataAsync(TGetCatalogsResp response) =>
-            GetResultSetMetadataAsync(response.OperationHandle, Client);
-        protected override Task<TGetResultSetMetadataResp> GetResultSetMetadataAsync(TGetColumnsResp response) =>
-            GetResultSetMetadataAsync(response.OperationHandle, Client);
-        protected override Task<TGetResultSetMetadataResp> GetResultSetMetadataAsync(TGetTablesResp response) =>
-            GetResultSetMetadataAsync(response.OperationHandle, Client);
-        protected override Task<TRowSet> GetRowSetAsync(TGetTableTypesResp response) =>
-            FetchResultsAsync(response.OperationHandle);
-        protected override Task<TRowSet> GetRowSetAsync(TGetColumnsResp response) =>
-            FetchResultsAsync(response.OperationHandle);
-        protected override Task<TRowSet> GetRowSetAsync(TGetTablesResp response) =>
-            FetchResultsAsync(response.OperationHandle);
-        protected override Task<TRowSet> GetRowSetAsync(TGetCatalogsResp response) =>
-            FetchResultsAsync(response.OperationHandle);
-        protected override Task<TRowSet> GetRowSetAsync(TGetSchemasResp response) =>
-            FetchResultsAsync(response.OperationHandle);
-
-        private async Task<TRowSet> FetchResultsAsync(TOperationHandle operationHandle, long batchSize = BatchSizeDefault, CancellationToken cancellationToken = default)
-        {
-            await PollForResponseAsync(operationHandle, Client, PollTimeMillisecondsDefault);
-            TFetchResultsResp fetchResp = await FetchNextAsync(operationHandle, Client, batchSize, cancellationToken);
-            if (fetchResp.Status.StatusCode == TStatusCode.ERROR_STATUS)
-            {
-                throw new HiveServer2Exception(fetchResp.Status.ErrorMessage)
-                    .SetNativeError(fetchResp.Status.ErrorCode)
-                    .SetSqlState(fetchResp.Status.SqlState);
-            }
-            return fetchResp.Results;
-        }
-
-        internal static async Task<TFetchResultsResp> FetchNextAsync(TOperationHandle operationHandle, TCLIService.IAsync client, long batchSize, CancellationToken cancellationToken = default)
-        {
-            TFetchResultsReq request = new(operationHandle, TFetchOrientation.FETCH_NEXT, batchSize);
-            TFetchResultsResp response = await client.FetchResults(request, cancellationToken);
-            return response;
-        }
-
         internal override SchemaParser SchemaParser => new HiveServer2SchemaParser();
 
         internal override SparkServerType ServerType => SparkServerType.Http;
+
+        public override string AssemblyVersion => s_assemblyVersion;
+
+        public override string AssemblyName => s_assemblyName;
+
+        protected override IEnumerable<TProtocolVersion> FallbackProtocolVersions => new[]
+        {
+            TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V9,
+            TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V8,
+            TProtocolVersion.HIVE_CLI_SERVICE_PROTOCOL_V7
+        };
+
+        private string GetUserAgent()
+        {
+            // Build the base user agent string with Thrift version
+            string thriftVersion = GetThriftVersion();
+            string thriftComponent = string.IsNullOrEmpty(thriftVersion) ? "Thrift" : $"Thrift/{thriftVersion}";
+            string baseUserAgent = $"{DriverName.Replace(" ", "")}/{ProductVersionDefault} {thriftComponent}";
+
+            // Check if a client has provided a user-agent entry
+            if (Properties.TryGetValue(SparkParameters.UserAgentEntry, out string? userAgentEntry) && !string.IsNullOrWhiteSpace(userAgentEntry))
+            {
+                return $"{baseUserAgent} {userAgentEntry}";
+            }
+
+            return baseUserAgent;
+        }
+
+        private string GetThriftVersion()
+        {
+            try
+            {
+                var thriftAssembly = typeof(TProtocol).Assembly;
+                var version = thriftAssembly.GetName().Version;
+                return version != null ? $"{version.Major}.{version.Minor}.{version.Build}" : "";
+            }
+            catch
+            {
+                // Return empty string if there's any issue retrieving the assembly version
+                return "";
+            }
+        }
     }
 }

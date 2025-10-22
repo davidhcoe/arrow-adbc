@@ -16,8 +16,12 @@
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
+using Apache.Arrow.Adbc;
+using Apache.Arrow;
 using Apache.Arrow.C;
+using static Apache.Arrow.Adbc.AdbcOptions;
 
 namespace Apache.Arrow.Adbc.C
 {
@@ -533,6 +537,21 @@ namespace Apache.Arrow.Adbc.C
         private static unsafe AdbcStatusCode StatementSetOptionIntDefaultImpl(CAdbcStatement* statement, byte* key, long value, CAdbcError* error)
         {
             return NotImplemented(error, nameof(CAdbcDriver.StatementSetOptionInt));
+        }
+
+        #endregion
+
+        #region ADBC API Revision 1.2.0
+
+#if !NET5_0_OR_GREATER
+        private static unsafe IntPtr StatementNextResultDefault = NativeDelegate<StatementNextResult>.AsNativePointer(StatementNextResultDefaultImpl);
+#else
+        private static unsafe delegate* unmanaged<CAdbcStatement*, CArrowSchema*, CArrowArrayStream*, CAdbcPartitions*, long*, CAdbcError*, AdbcStatusCode> StatementNextResultDefault => &StatementNextResultDefaultImpl;
+        [UnmanagedCallersOnly]
+#endif
+        private static unsafe AdbcStatusCode StatementNextResultDefaultImpl(CAdbcStatement* statement, CArrowSchema* schema, CArrowArrayStream* stream, CAdbcPartitions* partitions, long* rows_affected, CAdbcError* error)
+        {
+            return NotImplemented(error, nameof(CAdbcDriver.StatementNextResult));
         }
 
         #endregion

@@ -19,16 +19,14 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
     internal enum SparkServerType
     {
-        Invalid = 0,
         Http,
-        Databricks,
         Standard,
         Empty = int.MaxValue,
     }
 
     internal static class ServerTypeParser
     {
-        internal const string SupportedList = SparkServerTypeConstants.Http + ", " + SparkServerTypeConstants.Databricks;
+        internal const string SupportedList = SparkServerTypeConstants.Http;
 
         internal static bool TryParse(string? serverType, out SparkServerType serverTypeValue)
         {
@@ -38,9 +36,6 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                 case "":
                     serverTypeValue = SparkServerType.Empty;
                     return true;
-                case SparkServerTypeConstants.Databricks:
-                    serverTypeValue = SparkServerType.Databricks;
-                    return true;
                 case SparkServerTypeConstants.Http:
                     serverTypeValue = SparkServerType.Http;
                     return true;
@@ -48,7 +43,7 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                     serverTypeValue = SparkServerType.Standard;
                     return true;
                 default:
-                    serverTypeValue = SparkServerType.Invalid;
+                    serverTypeValue = default;
                     return false;
             }
         }

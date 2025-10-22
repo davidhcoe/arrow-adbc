@@ -55,6 +55,7 @@ public enum AdbcInfoCode {
    *
    * @see AdbcDriver#ADBC_VERSION_1_0_0
    * @see AdbcDriver#ADBC_VERSION_1_1_0
+   * @see AdbcDriver#ADBC_VERSION_1_2_0
    * @since ADBC API revision 1.1.0
    */
   DRIVER_ADBC_VERSION(103),

@@ -30,6 +30,8 @@ on:
       - "ruby/**"
       - ".github/workflows/native-windows.yml"
   push:
+    branches-ignore:
+      - 'dependabot/**'
     paths:
       - "c/**"
       - "ci/**"
@@ -47,6 +49,10 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: pwsh
+
 jobs:
   # ------------------------------------------------------------
   # Common build (builds libraries used in GLib, Python, Ruby)
@@ -58,7 +64,7 @@ jobs:
       matrix:
         os: ["windows-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -75,12 +81,11 @@ jobs:
         with:
           path: ~/conda_pkgs_dir
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f  # v3.2.0
         with:
           miniforge-version: latest
           use-mamba: true
       - name: Install Dependencies
-        shell: pwsh
         run: |
           mamba install -c conda-forge `
             --file ci\conda_env_cpp.txt
@@ -88,13 +93,13 @@ jobs:
           mamba uninstall gtest
 
       - name: Build and Install (No ASan)
-        shell: pwsh
         env:
           BUILD_ALL: "1"
           # TODO(apache/arrow-adbc#634)
           BUILD_DRIVER_BIGQUERY: "0"
           BUILD_DRIVER_FLIGHTSQL: "0"
           BUILD_DRIVER_SNOWFLAKE: "0"
+          BUILD_DRIVER_MANAGER_USER_CONFIG_TEST: "1"
         run: |
           .\ci\scripts\cpp_build.ps1 $pwd ${{ github.workspace }}\build
 
@@ -115,7 +120,7 @@ jobs:
       matrix:
         os: ["windows-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -132,12 +137,11 @@ jobs:
         with:
           path: ~/conda_pkgs_dir
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f  # v3.2.0
         with:
           miniforge-version: latest
           use-mamba: true
       - name: Install Dependencies
-        shell: pwsh
         run: |
           mamba install -c conda-forge `
             --file ci\conda_env_cpp.txt
@@ -145,31 +149,28 @@ jobs:
           mamba uninstall gtest
 
       - name: Build Driver Manager
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_MANAGER: "1"
+          BUILD_DRIVER_MANAGER_USER_CONFIG_TEST: "1"
         run: .\ci\scripts\cpp_build.ps1 $pwd $pwd\build
       - name: Build Driver PostgreSQL
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_POSTGRESQL: "1"
         run: .\ci\scripts\cpp_build.ps1 $pwd $pwd\build
       - name: Build Driver SQLite
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_SQLITE: "1"
         run: .\ci\scripts\cpp_build.ps1 $pwd $pwd\build
       - name: Test Driver Manager
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_MANAGER: "1"
+          BUILD_DRIVER_MANAGER_USER_CONFIG_TEST: "1"
         run: .\ci\scripts\cpp_test.ps1 $pwd\build
       - name: Test Driver SQLite
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_SQLITE: "1"
@@ -187,7 +188,7 @@ jobs:
       matrix:
         os: ["windows-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -208,29 +209,27 @@ jobs:
         with:
           path: ~/conda_pkgs_dir
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f  # v3.2.0
         with:
           miniforge-version: latest
           use-mamba: true
       - name: Install Dependencies
-        shell: pwsh
         run: |
           mamba install -c conda-forge `
             --file ci\conda_env_cpp.txt
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "${{ env.GO_VERSION }}"
           check-latest: true
           cache: true
           cache-dependency-path: go/adbc/go.sum
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: driver-manager-${{ matrix.os }}
           path: ${{ github.workspace }}/build
 
       - name: Go Build
-        shell: pwsh
         env:
           CGO_ENABLED: "1"
         run: |
@@ -238,7 +237,6 @@ jobs:
           .\ci\scripts\go_build.ps1 $pwd $pwd\build
       # TODO(apache/arrow#358): enable these tests on Windows
       # - name: Go Test
-      #   shell: pwsh
       #   env:
       #     CGO_ENABLED: "1"
       #   run: |
@@ -256,9 +254,9 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest"]
-        python: ["3.9", "3.11"]
+        python: ["3.10", "3.13"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -275,55 +273,48 @@ jobs:
         with:
           path: ~/conda_pkgs_dir
           key: conda-${{ runner.os }}-${{ steps.get-date.outputs.today }}-${{ env.CACHE_NUMBER }}-${{ hashFiles('ci/**') }}
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f  # v3.2.0
         with:
           miniforge-version: latest
           use-mamba: true
       - name: Install Dependencies
-        shell: pwsh
         run: |
           mamba install -c conda-forge `
             python=${{ matrix.python }} `
             --file ci\conda_env_cpp.txt `
             --file ci\conda_env_python.txt
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: driver-manager-${{ matrix.os }}
           path: ${{ github.workspace }}/build
 
       - name: Build Python Driver Manager
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_MANAGER: "1"
         run: .\ci\scripts\python_build.ps1 $pwd $pwd\build
       - name: Build Python Driver PostgreSQL
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_POSTGRESQL: "1"
         run: .\ci\scripts\python_build.ps1 $pwd $pwd\build
       - name: Build Python Driver SQLite
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_SQLITE: "1"
         run: .\ci\scripts\python_build.ps1 $pwd $pwd\build
       - name: Test Python Driver Manager
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_MANAGER: "1"
         run: .\ci\scripts\python_test.ps1 $pwd $pwd\build
       - name: Test Python Driver PostgreSQL
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_POSTGRESQL: "1"
         run: .\ci\scripts\python_test.ps1 $pwd $pwd\build
       - name: Test Python Driver SQLite
-        shell: pwsh
         env:
           BUILD_ALL: "0"
           BUILD_DRIVER_SQLITE: "1"

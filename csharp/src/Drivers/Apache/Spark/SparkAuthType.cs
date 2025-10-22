@@ -19,15 +19,15 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
     internal enum SparkAuthType
     {
-        Invalid = 0,
         None,
         UsernameOnly,
         Basic,
         Token,
+        OAuth,
         Empty = int.MaxValue,
     }
 
-    internal static class AuthTypeParser
+    internal static class SparkAuthTypeParser
     {
         internal static bool TryParse(string? authType, out SparkAuthType authTypeValue)
         {
@@ -49,8 +49,11 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
                 case SparkAuthTypeConstants.Token:
                     authTypeValue = SparkAuthType.Token;
                     return true;
+                case SparkAuthTypeConstants.OAuth:
+                    authTypeValue = SparkAuthType.OAuth;
+                    return true;
                 default:
-                    authTypeValue = SparkAuthType.Invalid;
+                    authTypeValue = default;
                     return false;
             }
         }

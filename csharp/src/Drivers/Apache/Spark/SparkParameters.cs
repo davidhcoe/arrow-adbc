@@ -15,24 +15,25 @@
  * limitations under the License.
  */
 
-using static System.Net.WebRequestMethods;
-
 namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
     /// <summary>
     /// Parameters used for connecting to Spark data sources.
     /// </summary>
-    public static class SparkParameters
+    public class SparkParameters
     {
         public const string HostName = "adbc.spark.host";
         public const string Port = "adbc.spark.port";
         public const string Path = "adbc.spark.path";
         public const string Token = "adbc.spark.token";
+
+        // access_token is required when authType is oauth
+        public const string AccessToken = "adbc.spark.access_token";
         public const string AuthType = "adbc.spark.auth_type";
         public const string Type = "adbc.spark.type";
         public const string DataTypeConv = "adbc.spark.data_type_conv";
-        public const string TLSOptions = "adbc.spark.tls_options";
-        public const string HttpRequestTimeoutMilliseconds = "adbc.spark.http_request_timeout_ms";
+        public const string ConnectTimeoutMilliseconds = "adbc.spark.connect_timeout_ms";
+        public const string UserAgentEntry = "adbc.spark.user_agent_entry";
     }
 
     public static class SparkAuthTypeConstants
@@ -41,12 +42,12 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
         public const string UsernameOnly = "username_only";
         public const string Basic = "basic";
         public const string Token = "token";
+        public const string OAuth = "oauth";
     }
 
     public static class SparkServerTypeConstants
     {
         public const string Http = "http";
-        public const string Databricks = "databricks";
         public const string Standard = "standard";
     }
 }

@@ -177,28 +177,34 @@ typedef uint8_t AdbcStatusCode;
 
 /// \brief No error.
 #define ADBC_STATUS_OK 0
+
 /// \brief An unknown error occurred.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_UNKNOWN 1
+
 /// \brief The operation is not implemented or supported.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_NOT_IMPLEMENTED 2
+
 /// \brief A requested resource was not found.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_NOT_FOUND 3
+
 /// \brief A requested resource already exists.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_ALREADY_EXISTS 4
+
 /// \brief The arguments are invalid, likely a programming error.
 ///
 /// For instance, they may be of the wrong format, or out of range.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_INVALID_ARGUMENT 5
+
 /// \brief The preconditions for the operation are not met, likely a
 ///   programming error.
 ///
@@ -207,6 +213,7 @@ typedef uint8_t AdbcStatusCode;
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_INVALID_STATE 6
+
 /// \brief Invalid data was processed (not a programming error).
 ///
 /// For instance, a division by zero may have occurred during query
@@ -214,6 +221,7 @@ typedef uint8_t AdbcStatusCode;
 ///
 /// May indicate a database-side error only.
 #define ADBC_STATUS_INVALID_DATA 7
+
 /// \brief The database's integrity was affected.
 ///
 /// For instance, a foreign key check may have failed, or a uniqueness
@@ -221,28 +229,34 @@ typedef uint8_t AdbcStatusCode;
 ///
 /// May indicate a database-side error only.
 #define ADBC_STATUS_INTEGRITY 8
+
 /// \brief An error internal to the driver or database occurred.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_INTERNAL 9
+
 /// \brief An I/O error occurred.
 ///
 /// For instance, a remote service may be unavailable.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_IO 10
+
 /// \brief The operation was cancelled, not due to a timeout.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_CANCELLED 11
+
 /// \brief The operation was cancelled due to a timeout.
 ///
 /// May indicate a driver-side or database-side error.
 #define ADBC_STATUS_TIMEOUT 12
+
 /// \brief Authentication failed.
 ///
 /// May indicate a database-side error only.
 #define ADBC_STATUS_UNAUTHENTICATED 13
+
 /// \brief The client is not authorized to perform the given operation.
 ///
 /// May indicate a database-side error only.
@@ -288,7 +302,7 @@ struct ADBC_EXPORT AdbcError {
   ///
   /// This field may not be used unless vendor_code is
   /// ADBC_ERROR_VENDOR_CODE_PRIVATE_DATA.  If present, this field is NULLPTR
-  /// iff the error is unintialized/freed.
+  /// iff the error is uninitialized/freed.
   ///
   /// \since ADBC API revision 1.1.0
   void* private_data;
@@ -331,6 +345,7 @@ struct ADBC_EXPORT AdbcError {
 ///
 /// \since ADBC API revision 1.1.0
 #define ADBC_ERROR_1_0_0_SIZE (offsetof(struct AdbcError, private_data))
+
 /// \brief The size of the AdbcError structure in ADBC 1.1.0.
 ///
 /// Drivers written for ADBC 1.1.0 and later should never touch more than this
@@ -408,10 +423,19 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 /// \since ADBC API revision 1.1.0
 #define ADBC_VERSION_1_1_0 1001000
 
+/// \brief ADBC revision 1.2.0.
+///
+/// When passed to an AdbcDriverInitFunc(), the driver parameter must
+/// point to an AdbcDriver.
+///
+/// \since ADBC API revision 1.2.0
+#define ADBC_VERSION_1_2_0 1002000
+
 /// \brief Canonical option value for enabling an option.
 ///
 /// For use as the value in SetOption calls.
 #define ADBC_OPTION_VALUE_ENABLED "true"
+
 /// \brief Canonical option value for disabling an option.
 ///
 /// For use as the value in SetOption calls.
@@ -426,6 +450,7 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 ///
 /// \since ADBC API revision 1.1.0
 #define ADBC_OPTION_URI "uri"
+
 /// \brief Canonical option name for usernames.
 ///
 /// Should be used as the expected option name to specify a username
@@ -435,6 +460,7 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 ///
 /// \since ADBC API revision 1.1.0
 #define ADBC_OPTION_USERNAME "username"
+
 /// \brief Canonical option name for passwords.
 ///
 /// Should be used as the expected option name to specify a password
@@ -450,28 +476,34 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_VENDOR_NAME 0
+
 /// \brief The database vendor/product version (type: utf8).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_VENDOR_VERSION 1
+
 /// \brief The database vendor/product Arrow library version (type:
 ///   utf8).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_VENDOR_ARROW_VERSION 2
+
 /// \brief Indicates whether SQL queries are supported (type: bool).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_VENDOR_SQL 3
+
 /// \brief Indicates whether Substrait queries are supported (type: bool).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_VENDOR_SUBSTRAIT 4
+
 /// \brief The minimum supported Substrait version, or null if
 ///   Substrait is not supported (type: utf8).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_VENDOR_SUBSTRAIT_MIN_VERSION 5
+
 /// \brief The maximum supported Substrait version, or null if
 ///   Substrait is not supported (type: utf8).
 ///
@@ -482,14 +514,17 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_DRIVER_NAME 100
+
 /// \brief The driver version (type: utf8).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_DRIVER_VERSION 101
+
 /// \brief The driver Arrow library version (type: utf8).
 ///
 /// \see AdbcConnectionGetInfo
 #define ADBC_INFO_DRIVER_ARROW_VERSION 102
+
 /// \brief The driver ADBC API version (type: int64).
 ///
 /// The value should be one of the ADBC_VERSION constants.
@@ -504,18 +539,22 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 ///
 /// \see AdbcConnectionGetObjects
 #define ADBC_OBJECT_DEPTH_ALL 0
+
 /// \brief Return metadata on catalogs only.
 ///
 /// \see AdbcConnectionGetObjects
 #define ADBC_OBJECT_DEPTH_CATALOGS 1
+
 /// \brief Return metadata on catalogs and schemas.
 ///
 /// \see AdbcConnectionGetObjects
 #define ADBC_OBJECT_DEPTH_DB_SCHEMAS 2
+
 /// \brief Return metadata on catalogs, schemas, and tables.
 ///
 /// \see AdbcConnectionGetObjects
 #define ADBC_OBJECT_DEPTH_TABLES 3
+
 /// \brief Return metadata on catalogs, schemas, tables, and columns.
 ///
 /// \see AdbcConnectionGetObjects
@@ -527,42 +566,55 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 
 /// \brief The dictionary-encoded name of the average byte width statistic.
 #define ADBC_STATISTIC_AVERAGE_BYTE_WIDTH_KEY 0
+
 /// \brief The average byte width statistic.  The average size in bytes of a
 ///   row in the column.  Value type is float64.
 ///
 /// For example, this is roughly the average length of a string for a string
 /// column.
 #define ADBC_STATISTIC_AVERAGE_BYTE_WIDTH_NAME "adbc.statistic.byte_width"
+
 /// \brief The dictionary-encoded name of the distinct value count statistic.
 #define ADBC_STATISTIC_DISTINCT_COUNT_KEY 1
+
 /// \brief The distinct value count (NDV) statistic.  The number of distinct
 ///   values in the column.  Value type is int64 (when not approximate) or
 ///   float64 (when approximate).
 #define ADBC_STATISTIC_DISTINCT_COUNT_NAME "adbc.statistic.distinct_count"
+
 /// \brief The dictionary-encoded name of the max byte width statistic.
 #define ADBC_STATISTIC_MAX_BYTE_WIDTH_KEY 2
+
 /// \brief The max byte width statistic.  The maximum size in bytes of a row
 ///   in the column.  Value type is int64 (when not approximate) or float64
 ///   (when approximate).
 ///
 /// For example, this is the maximum length of a string for a string column.
 #define ADBC_STATISTIC_MAX_BYTE_WIDTH_NAME "adbc.statistic.max_byte_width"
+
 /// \brief The dictionary-encoded name of the max value statistic.
 #define ADBC_STATISTIC_MAX_VALUE_KEY 3
+
 /// \brief The max value statistic.  Value type is column-dependent.
 #define ADBC_STATISTIC_MAX_VALUE_NAME "adbc.statistic.max_value"
+
 /// \brief The dictionary-encoded name of the min value statistic.
 #define ADBC_STATISTIC_MIN_VALUE_KEY 4
+
 /// \brief The min value statistic.  Value type is column-dependent.
 #define ADBC_STATISTIC_MIN_VALUE_NAME "adbc.statistic.min_value"
+
 /// \brief The dictionary-encoded name of the null count statistic.
 #define ADBC_STATISTIC_NULL_COUNT_KEY 5
+
 /// \brief The null count statistic.  The number of values that are null in
 ///   the column.  Value type is int64 (when not approximate) or float64
 ///   (when approximate).
 #define ADBC_STATISTIC_NULL_COUNT_NAME "adbc.statistic.null_count"
+
 /// \brief The dictionary-encoded name of the row count statistic.
 #define ADBC_STATISTIC_ROW_COUNT_KEY 6
+
 /// \brief The row count statistic.  The number of rows in the column or
 ///   table.  Value type is int64 (when not approximate) or float64 (when
 ///   approximate).
@@ -753,33 +805,41 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 ///
 /// The type is char*.
 #define ADBC_INGEST_OPTION_TARGET_TABLE "adbc.ingest.target_table"
+
 /// \brief Whether to create (the default) or append.
 ///
 /// The type is char*.
 #define ADBC_INGEST_OPTION_MODE "adbc.ingest.mode"
+
 /// \brief Create the table and insert data; error if the table exists.
 #define ADBC_INGEST_OPTION_MODE_CREATE "adbc.ingest.mode.create"
+
 /// \brief Do not create the table, and insert data; error if the
 ///   table does not exist (ADBC_STATUS_NOT_FOUND) or does not match
 ///   the schema of the data to append (ADBC_STATUS_ALREADY_EXISTS).
 #define ADBC_INGEST_OPTION_MODE_APPEND "adbc.ingest.mode.append"
+
 /// \brief Create the table and insert data; drop the original table
 ///   if it already exists.
 /// \since ADBC API revision 1.1.0
 #define ADBC_INGEST_OPTION_MODE_REPLACE "adbc.ingest.mode.replace"
+
 /// \brief Insert data; create the table if it does not exist, or
 ///   error if the table exists, but the schema does not match the
 ///   schema of the data to append (ADBC_STATUS_ALREADY_EXISTS).
 /// \since ADBC API revision 1.1.0
 #define ADBC_INGEST_OPTION_MODE_CREATE_APPEND "adbc.ingest.mode.create_append"
+
 /// \brief The catalog of the table for bulk insert.
 ///
 /// The type is char*.
 #define ADBC_INGEST_OPTION_TARGET_CATALOG "adbc.ingest.target_catalog"
+
 /// \brief The schema of the table for bulk insert.
 ///
 /// The type is char*.
 #define ADBC_INGEST_OPTION_TARGET_DB_SCHEMA "adbc.ingest.target_db_schema"
+
 /// \brief Use a temporary table for ingestion.
 ///
 /// The value should be ADBC_OPTION_VALUE_ENABLED or
@@ -807,7 +867,7 @@ const struct AdbcError* AdbcErrorFromArrayStream(struct ArrowArrayStream* stream
 /// Must be kept alive as long as any connections exist.
 struct ADBC_EXPORT AdbcDatabase {
   /// \brief Opaque implementation-defined state.
-  /// This field is NULLPTR iff the connection is unintialized/freed.
+  /// This field is NULLPTR iff the connection is uninitialized/freed.
   void* private_data;
   /// \brief The associated driver (used by the driver manager to help
   ///   track state).
@@ -830,7 +890,7 @@ struct ADBC_EXPORT AdbcDatabase {
 /// serialize accesses to a connection.
 struct ADBC_EXPORT AdbcConnection {
   /// \brief Opaque implementation-defined state.
-  /// This field is NULLPTR iff the connection is unintialized/freed.
+  /// This field is NULLPTR iff the connection is uninitialized/freed.
   void* private_data;
   /// \brief The associated driver (used by the driver manager to help
   ///   track state).
@@ -868,7 +928,7 @@ struct ADBC_EXPORT AdbcConnection {
 /// serialize accesses to a statement.
 struct ADBC_EXPORT AdbcStatement {
   /// \brief Opaque implementation-defined state.
-  /// This field is NULLPTR iff the connection is unintialized/freed.
+  /// This field is NULLPTR iff the connection is uninitialized/freed.
   void* private_data;
 
   /// \brief The associated driver (used by the driver manager to help
@@ -907,7 +967,7 @@ struct AdbcPartitions {
   const size_t* partition_lengths;
 
   /// \brief Opaque implementation-defined state.
-  /// This field is NULLPTR iff the connection is unintialized/freed.
+  /// This field is NULLPTR iff the connection is uninitialized/freed.
   void* private_data;
 
   /// \brief Release the contained partitions.
@@ -935,11 +995,11 @@ struct AdbcPartitions {
 /// worrying about multiple definitions of the same symbol.
 struct ADBC_EXPORT AdbcDriver {
   /// \brief Opaque driver-defined state.
-  /// This field is NULL if the driver is unintialized/freed (but
+  /// This field is NULL if the driver is uninitialized/freed (but
   /// it need not have a value even if the driver is initialized).
   void* private_data;
   /// \brief Opaque driver manager-defined state.
-  /// This field is NULL if the driver is unintialized/freed (but
+  /// This field is NULL if the driver is uninitialized/freed (but
   /// it need not have a value even if the driver is initialized).
   void* private_manager;
 
@@ -1007,17 +1067,18 @@ struct ADBC_EXPORT AdbcDriver {
   /// the AdbcDriverInitFunc is greater than or equal to
   /// ADBC_VERSION_1_1_0.
   ///
-  /// For a 1.0.0 driver being loaded by a 1.1.0 driver manager: the
-  /// 1.1.0 manager will allocate the new, expanded AdbcDriver struct
-  /// and attempt to have the driver initialize it with
-  /// ADBC_VERSION_1_1_0.  This must return an error, after which the
-  /// driver will try again with ADBC_VERSION_1_0_0.  The driver must
-  /// not access the new fields, which will carry undefined values.
-  ///
-  /// For a 1.1.0 driver being loaded by a 1.0.0 driver manager: the
-  /// 1.0.0 manager will allocate the old AdbcDriver struct and
-  /// attempt to have the driver initialize it with
+  /// When a driver implementing an older spec is loaded by a newer
+  /// driver manager, the newer manager will allocate the new, expanded
+  /// AdbcDriver struct and attempt to have the driver initialize it with
+  /// the newer version.  This must return an error, after which the driver
+  /// will try again with successively older versions all the way back to
   /// ADBC_VERSION_1_0_0.  The driver must not access the new fields,
+  /// which will carry undefined values.
+  ///
+  /// When a driver implementing a newer spec is loaded by an older
+  /// driver manager, the older manager will allocate the old AdbcDriver
+  /// struct and attempt to have the driver initialize it with the
+  /// older version.  The driver must not access the new fields,
   /// and should initialize the old fields.
   ///
   /// @{
@@ -1083,6 +1144,20 @@ struct ADBC_EXPORT AdbcDriver {
                                           struct AdbcError*);
 
   /// @}
+  /// \defgroup adbc-1.2.0 ADBC API Revision 1.2.0
+  ///
+  /// Functions added in ADBC 1.2.0.  For backwards compatibility,
+  /// these members must not be accessed unless the version passed to
+  /// the AdbcDriverInitFunc is greater than or equal to
+  /// ADBC_VERSION_1_2_0.
+  ///
+  /// @{
+
+  AdbcStatusCode (*StatementNextResult)(struct AdbcStatement*, struct ArrowSchema*,
+                                       struct ArrowArrayStream*, struct AdbcPartitions*,
+                                       int64_t*, struct AdbcError*);
+
+  /// @}
 };
 
 /// \brief The size of the AdbcDriver structure in ADBC 1.0.0.
@@ -1094,12 +1169,20 @@ struct ADBC_EXPORT AdbcDriver {
 #define ADBC_DRIVER_1_0_0_SIZE (offsetof(struct AdbcDriver, ErrorGetDetailCount))
 
 /// \brief The size of the AdbcDriver structure in ADBC 1.1.0.
-/// Drivers written for ADBC 1.1.0 and later should never touch more
+/// Drivers written for ADBC 1.2.0 and later should never touch more
 /// than this portion of an AdbcDriver struct when given
 /// ADBC_VERSION_1_1_0.
 ///
 /// \since ADBC API revision 1.1.0
-#define ADBC_DRIVER_1_1_0_SIZE (sizeof(struct AdbcDriver))
+#define ADBC_DRIVER_1_1_0_SIZE (offsetof(struct AdbcDriver, StatementNextResult))
+
+/// \brief The size of the AdbcDriver structure in ADBC 1.2.0.
+/// Drivers written for ADBC 1.3.0 and later should never touch more
+/// than this portion of an AdbcDriver struct when given
+/// ADBC_VERSION_1_2_0.
+///
+/// \since ADBC API revision 1.2.0
+#define ADBC_DRIVER_1_2_0_SIZE (sizeof(struct AdbcDriver))
 
 /// @}
 
@@ -2235,6 +2318,55 @@ ADBC_EXPORT
 AdbcStatusCode AdbcStatementGetParameterSchema(struct AdbcStatement* statement,
                                                struct ArrowSchema* schema,
                                                struct AdbcError* error);
+
+/// \brief Move to next result set, if any.
+///
+/// For an execution which returns multiple results, this can be
+/// called once the initial execution is complete to get the second
+/// and subsequent result sets. A driver may support calling
+/// AdbcStatementNextResult while the previous result is still being
+/// consumed. One which does not must return ADBC_STATUS_INVALID_STATE
+/// until that happens. A driver returns ADBC_STATUS_OK to indicate
+/// successful execution of this function whether or not an additional
+/// result set is available.
+///
+/// If the original execution was via AdbcStatementExecuteSchema then
+/// the out, partitions and rows_affected parameters may be passed as
+/// NULL. If passed, their contents are unchanged whether or not an
+/// additional result is available.
+///
+/// Either partitions or out must be NULL to indicate which style of output
+/// is desired by the caller. Supplying non-NULL values to both must result
+/// in ADBC_STATUS_INVALID_ARGUMENT. If the original execution was via
+/// AdbcStatementExecuteQuery and the call to AdbcStatementNextResult has a
+/// non-NULL partitions, or the original was via AdbcStatementExecutePartitions
+/// and this call has a non-NULL out, then the driver may choose to return the
+/// data in a different style than the original result set. If it does not (or
+/// cannot) then it should return ADBC_STATUS_INVALID_ARGUMENT.
+///
+/// The driver indicates that no additional result is available by setting
+/// release on schema and/or out to NULL.
+///
+/// \since ADBC API revision 1.2.0
+///
+/// \param[in] statement The statement for which to fetch a subsequent result.
+/// \param[out] schema An optional location to return the schema of the result.
+///   Either schema or out must be set.
+/// \param[out] out The result set, if desired as a single result stream.
+/// \param[out] partitions The result set, if desired as partitioned data
+/// \param[out] rows_affected The number of rows affected if known, else -1.
+/// \param[out] error An optional location to return an error
+///   message if necessary.
+///
+/// \return ADBC_STATUS_INVALID_STATE if this function is called at
+/// an inappropriate time.
+ADBC_EXPORT
+AdbcStatusCode AdbcStatementNextResult(struct AdbcStatement* statement,
+                                       struct ArrowSchema* schema,
+                                       struct ArrowArrayStream* out,
+                                       struct AdbcPartitions* partitions,
+                                       int64_t* rows_affected,
+                                       struct AdbcError* error);
 
 /// \brief Set a string option on a statement.
 /// \param[in] statement The statement.

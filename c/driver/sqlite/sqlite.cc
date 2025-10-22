@@ -15,7 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <cstdio>
 #include <limits>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <arrow-adbc/adbc.h>
 #include <sqlite3.h>
@@ -46,6 +51,7 @@ constexpr std::string_view kConnectionOptionLoadExtensionEntrypoint =
     "adbc.sqlite.load_extension.entrypoint";
 /// The batch size for query results (and for initial type inference)
 constexpr std::string_view kStatementOptionBatchRows = "adbc.sqlite.query.batch_rows";
+constexpr std::string_view kStatementOptionBindByName = "adbc.statement.bind_by_name";
 
 std::string_view GetColumnText(sqlite3_stmt* stmt, int index) {
   return {
@@ -150,7 +156,7 @@ class SqliteQuery {
     return Close(rc);
   }
 
-  Status Close(int rc) {
+  Status Close(int last_rc) {
     if (stmt_) {
       int rc = sqlite3_finalize(stmt_);
       stmt_ = nullptr;
@@ -158,7 +164,7 @@ class SqliteQuery {
         return status::fmt::Internal("failed to execute: {}\nquery was: {}",
                                      sqlite3_errmsg(conn_), query_);
       }
-    } else if (rc != SQLITE_OK) {
+    } else if (last_rc != SQLITE_OK) {
       return status::fmt::Internal("failed to execute: {}\nquery was: {}",
                                    sqlite3_errmsg(conn_), query_);
     }
@@ -192,7 +198,7 @@ class SqliteQuery {
       UNWRAP_RESULT(bool has_row, q.Next());
       if (!has_row) break;
 
-      int rc = std::forward<RowFunc>(row_func)(q.stmt_);
+      rc = std::forward<RowFunc>(row_func)(q.stmt_);
       if (rc != SQLITE_OK) break;
     }
     return q.Close();
@@ -312,7 +318,7 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
     // XXX: because we're saving the SqliteQuery, we also need to save the string builder
     columns_query.Reset();
     columns_query.Append(
-        R"(SELECT cid, name, type, "notnull", dflt_value FROM pragma_table_info("%w" , "%w") WHERE NAME LIKE ?)",
+        R"(SELECT cid, name, type, 'notnull', dflt_value FROM pragma_table_info(%Q, %Q) WHERE NAME LIKE ?)",
         table.data(), catalog.data());
     UNWRAP_RESULT(auto query, columns_query.GetString());
     assert(!query.empty());
@@ -343,7 +349,7 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
     {
       SqliteStringBuilder builder;
       builder.Append(
-          R"(SELECT name FROM pragma_table_info("%w" , "%w") WHERE pk > 0 ORDER BY pk ASC)",
+          R"(SELECT name FROM pragma_table_info(%Q, %Q) WHERE pk > 0 ORDER BY pk ASC)",
           table.data(), catalog.data());
       UNWRAP_RESULT(auto pk_query, builder.GetString());
       std::vector<std::string> pk;
@@ -595,8 +601,8 @@ class SqliteConnection : public driver::Connection<SqliteConnection> {
     nanoarrow::UniqueArrayStream stream;
     struct AdbcError error = ADBC_ERROR_INIT;
     AdbcStatusCode status =
-        AdbcSqliteExportReader(conn_, stmt, /*binder=*/NULL,
-                               /*batch_size=*/64, stream.get(), &error);
+        InternalAdbcSqliteExportReader(conn_, stmt, /*binder=*/NULL,
+                                       /*batch_size=*/64, stream.get(), &error);
     if (status == ADBC_STATUS_OK) {
       int code = stream->get_schema(stream.get(), schema);
       if (code != 0) {
@@ -758,11 +764,11 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
  public:
   [[maybe_unused]] constexpr static std::string_view kErrorPrefix = "[SQLite]";
 
-  Status BindImpl() {
+  Status BindImpl(bool ingest) {
     if (bind_parameters_.release) {
       struct AdbcError error = ADBC_ERROR_INIT;
-      if (AdbcStatusCode code =
-              AdbcSqliteBinderSetArrayStream(&binder_, &bind_parameters_, &error);
+      if (AdbcStatusCode code = InternalAdbcSqliteBinderSetArrayStream(
+              &binder_, &bind_parameters_, !ingest && bind_by_name_, &error);
           code != ADBC_STATUS_OK) {
         return Status::FromAdbc(code, error);
       }
@@ -771,7 +777,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
   }
 
   Result<int64_t> ExecuteIngestImpl(IngestState& state) {
-    UNWRAP_STATUS(BindImpl());
+    UNWRAP_STATUS(BindImpl(true));
     if (!binder_.schema.release) {
       return status::InvalidState("must Bind() before bulk ingestion");
     }
@@ -933,7 +939,8 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
     struct AdbcError error = ADBC_ERROR_INIT;
     while (true) {
       char finished = 0;
-      status_code = AdbcSqliteBinderBindNext(&binder_, conn_, stmt, &finished, &error);
+      status_code =
+          InternalAdbcSqliteBinderBindNext(&binder_, conn_, stmt, &finished, &error);
       if (status_code != ADBC_STATUS_OK || finished) {
         status = Status::FromAdbc(status_code, error);
         break;
@@ -969,7 +976,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
 
   Result<int64_t> ExecuteQueryImpl(ArrowArrayStream* stream) {
     struct AdbcError error = ADBC_ERROR_INIT;
-    UNWRAP_STATUS(BindImpl());
+    UNWRAP_STATUS(BindImpl(false));
 
     const int64_t expected = sqlite3_bind_parameter_count(stmt_);
     const int64_t actual = binder_.schema.n_children;
@@ -978,9 +985,9 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
           "parameter count mismatch: expected {} but found {}", expected, actual);
     }
 
-    auto status =
-        AdbcSqliteExportReader(conn_, stmt_, binder_.schema.release ? &binder_ : nullptr,
-                               batch_size_, stream, &error);
+    auto status = InternalAdbcSqliteExportReader(
+        conn_, stmt_, binder_.schema.release ? &binder_ : nullptr, batch_size_, stream,
+        &error);
     if (status != ADBC_STATUS_OK) {
       return Status::FromAdbc(status, error);
     }
@@ -997,7 +1004,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
   }
 
   Result<int64_t> ExecuteUpdateImpl() {
-    UNWRAP_STATUS(BindImpl());
+    UNWRAP_STATUS(BindImpl(false));
 
     const int64_t expected = sqlite3_bind_parameter_count(stmt_);
     const int64_t actual = binder_.schema.n_children;
@@ -1015,10 +1022,10 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
       if (binder_.schema.release) {
         char finished = 0;
         struct AdbcError error = ADBC_ERROR_INIT;
-        if (AdbcStatusCode code =
-                AdbcSqliteBinderBindNext(&binder_, conn_, stmt_, &finished, &error);
+        if (AdbcStatusCode code = InternalAdbcSqliteBinderBindNext(&binder_, conn_, stmt_,
+                                                                   &finished, &error);
             code != ADBC_STATUS_OK) {
-          AdbcSqliteBinderRelease(&binder_);
+          InternalAdbcSqliteBinderRelease(&binder_);
           return Status::FromAdbc(code, error);
         } else if (finished != 0) {
           break;
@@ -1035,7 +1042,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
 
       if (!binder_.schema.release) break;
     }
-    AdbcSqliteBinderRelease(&binder_);
+    InternalAdbcSqliteBinderRelease(&binder_);
 
     if (sqlite3_reset(stmt_) != SQLITE_OK) {
       const char* msg = sqlite3_errmsg(conn_);
@@ -1122,7 +1129,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
                                rc, sqlite3_errmsg(conn_));
       }
     }
-    AdbcSqliteBinderRelease(&binder_);
+    InternalAdbcSqliteBinderRelease(&binder_);
     return Statement::ReleaseImpl();
   }
 
@@ -1137,11 +1144,15 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
       }
       batch_size_ = static_cast<int>(batch_size);
       return status::Ok();
+    } else if (key == kStatementOptionBindByName) {
+      UNWRAP_RESULT(bind_by_name_, value.AsBool());
+      return status::Ok();
     }
     return Base::SetOptionImpl(key, std::move(value));
   }
 
   int batch_size_ = 1024;
+  bool bind_by_name_ = false;
   AdbcSqliteBinder binder_;
   sqlite3* conn_ = nullptr;
   sqlite3_stmt* stmt_ = nullptr;
@@ -1154,6 +1165,8 @@ using SqliteDriver =
 
 // Public names
 
+extern "C" {
+#if !defined(ADBC_NO_COMMON_ENTRYPOINTS)
 AdbcStatusCode AdbcDatabaseGetOption(struct AdbcDatabase* database, const char* key,
                                      char* value, size_t* length,
                                      struct AdbcError* error) {
@@ -1472,7 +1485,12 @@ AdbcStatusCode AdbcStatementExecutePartitions(struct AdbcStatement* statement,
       statement, schema, partitions, rows_affected, error);
 }
 
-extern "C" {
+[[maybe_unused]] ADBC_EXPORT AdbcStatusCode AdbcDriverInit(int version, void* raw_driver,
+                                                           AdbcError* error) {
+  return adbc::sqlite::SqliteDriver::Init(version, raw_driver, error);
+}
+#endif  // ADBC_NO_COMMON_ENTRYPOINTS
+
 [[maybe_unused]] ADBC_EXPORT AdbcStatusCode AdbcDriverSqliteInit(int version,
                                                                  void* raw_driver,
                                                                  AdbcError* error) {
@@ -1482,11 +1500,6 @@ extern "C" {
 [[maybe_unused]] ADBC_EXPORT AdbcStatusCode SqliteDriverInit(int version,
                                                              void* raw_driver,
                                                              AdbcError* error) {
-  return adbc::sqlite::SqliteDriver::Init(version, raw_driver, error);
-}
-
-[[maybe_unused]] ADBC_EXPORT AdbcStatusCode AdbcDriverInit(int version, void* raw_driver,
-                                                           AdbcError* error) {
   return adbc::sqlite::SqliteDriver::Init(version, raw_driver, error);
 }
 }

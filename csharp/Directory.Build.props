@@ -27,9 +27,9 @@
   <!-- AssemblyInfo properties -->
   <PropertyGroup>
     <Product>Apache Arrow ADBC library</Product>
-    <Copyright>Copyright 2022-2024 The Apache Software Foundation</Copyright>
+    <Copyright>Copyright 2022-2025 The Apache Software Foundation</Copyright>
     <Company>The Apache Software Foundation</Company>
-    <VersionPrefix>0.15.0</VersionPrefix>
+    <VersionPrefix>0.21.0</VersionPrefix>
     <VersionSuffix>SNAPSHOT</VersionSuffix>
   </PropertyGroup>
 
@@ -44,12 +44,15 @@
     <IsWindows Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">true</IsWindows>
   </PropertyGroup>
 
+  <ItemGroup Condition="!$([MSBuild]::IsTargetFrameworkCompatible($(TargetFramework), 'net8.0'))">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All"/>
+  </ItemGroup>
+
   <!-- NuGet properties -->
   <PropertyGroup>
     <Authors>The Apache Software Foundation</Authors>
     <PackageIcon>feather.png</PackageIcon>
-    <!-- We can't use PackageLicenseExpression; the license file also contains 3rd-party notices. -->
-    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://arrow.apache.org/</PackageProjectUrl>
     <PackageTags>apache arrow adbc</PackageTags>
     <RepositoryType>git</RepositoryType>

@@ -56,6 +56,7 @@ struct BindStream {
   Handle<struct ArrowBuffer> param_buffer;
 
   bool has_tz_field = false;
+  bool autocommit = false;
   std::string tz_setting;
 
   struct ArrowError na_error;
@@ -119,6 +120,7 @@ struct BindStream {
       if (!has_tz_field && type.type_id() == PostgresTypeId::kTimestamptz) {
         UNWRAP_STATUS(SetDatabaseTimezoneUTC(pg_conn, autocommit));
         has_tz_field = true;
+        this->autocommit = autocommit;
       }
 
       std::unique_ptr<PostgresCopyFieldWriter> writer;
@@ -199,9 +201,11 @@ struct BindStream {
                                   int result_format) {
     param_buffer->size_bytes = 0;
     int64_t last_offset = 0;
+    std::vector<bool> is_null_param(array_view->n_children);
 
     for (int64_t col = 0; col < array_view->n_children; col++) {
-      if (!ArrowArrayViewIsNull(array_view->children[col], current_row)) {
+      is_null_param[col] = ArrowArrayViewIsNull(array_view->children[col], current_row);
+      if (!is_null_param[col]) {
         // Note that this Write() call currently writes the (int32_t) byte size of the
         // field in addition to the serialized value.
         UNWRAP_NANOARROW(
@@ -213,7 +217,7 @@ struct BindStream {
 
       int64_t param_length = param_buffer->size_bytes - last_offset - sizeof(int32_t);
       if (param_length > (std::numeric_limits<int>::max)()) {
-        return Status::Internal("Paramter ", col, "serialized to >2GB of binary");
+        return Status::Internal("Parameter ", col, "serialized to >2GB of binary");
       }
 
       param_lengths[col] = static_cast<int>(param_length);
@@ -223,7 +227,7 @@ struct BindStream {
     last_offset = 0;
     for (int64_t col = 0; col < array_view->n_children; col++) {
       last_offset += sizeof(int32_t);
-      if (param_lengths[col] == 0) {
+      if (is_null_param[col]) {
         param_values[col] = nullptr;
       } else {
         param_values[col] = reinterpret_cast<char*>(param_buffer->data) + last_offset;
@@ -254,8 +258,14 @@ struct BindStream {
       PqResultHelper reset(pg_conn, "SET TIME ZONE '" + tz_setting + "'");
       UNWRAP_STATUS(reset.Execute());
 
-      PqResultHelper commit(pg_conn, "COMMIT");
-      UNWRAP_STATUS(reset.Execute());
+      if (autocommit) {
+        // SetDatabaseTimezoneUTC will start a transaction if autocommit is
+        // enabled (so the timezone setting will roll back if we error), so we
+        // need to commit here.  Otherwise we should not commit and let the
+        // user commit.
+        PqResultHelper commit(pg_conn, "COMMIT");
+        UNWRAP_STATUS(commit.Execute());
+      }
     }
 
     return Status::Ok();

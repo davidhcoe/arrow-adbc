@@ -28,21 +28,29 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # 'bash' will expand to -eo pipefail
+    shell: bash
+
 jobs:
   pre-commit:
     name: "pre-commit"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - name: Get required Go version
+        run: |
+          (. .env && echo "GO_VERSION=${GO}") >> $GITHUB_ENV
+      - uses: actions/setup-go@v6
         with:
-          go-version-file: 'go/adbc/go.mod'
+          go-version: "${{ env.GO_VERSION }}"
           check-latest: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
       - name: install golangci-lint

@@ -22,6 +22,7 @@
 #include <cinttypes>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -74,8 +75,8 @@ AdbcStatusCode PostgresDatabase::Init(struct AdbcError* error) {
 
 AdbcStatusCode PostgresDatabase::Release(struct AdbcError* error) {
   if (open_connections_ != 0) {
-    SetError(error, "%s%" PRId32 "%s", "[libpq] Database released with ",
-             open_connections_, " open connections");
+    InternalAdbcSetError(error, "%s%" PRId32 "%s", "[libpq] Database released with ",
+                         open_connections_, " open connections");
     return ADBC_STATUS_INVALID_STATE;
   }
   return ADBC_STATUS_OK;
@@ -86,7 +87,7 @@ AdbcStatusCode PostgresDatabase::SetOption(const char* key, const char* value,
   if (strcmp(key, "uri") == 0) {
     uri_ = value;
   } else {
-    SetError(error, "%s%s", "[libpq] Unknown database option ", key);
+    InternalAdbcSetError(error, "%s%s", "[libpq] Unknown database option ", key);
     return ADBC_STATUS_NOT_IMPLEMENTED;
   }
   return ADBC_STATUS_OK;
@@ -94,31 +95,33 @@ AdbcStatusCode PostgresDatabase::SetOption(const char* key, const char* value,
 
 AdbcStatusCode PostgresDatabase::SetOptionBytes(const char* key, const uint8_t* value,
                                                 size_t length, struct AdbcError* error) {
-  SetError(error, "%s%s", "[libpq] Unknown option ", key);
+  InternalAdbcSetError(error, "%s%s", "[libpq] Unknown option ", key);
   return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
 AdbcStatusCode PostgresDatabase::SetOptionDouble(const char* key, double value,
                                                  struct AdbcError* error) {
-  SetError(error, "%s%s", "[libpq] Unknown option ", key);
+  InternalAdbcSetError(error, "%s%s", "[libpq] Unknown option ", key);
   return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
 AdbcStatusCode PostgresDatabase::SetOptionInt(const char* key, int64_t value,
                                               struct AdbcError* error) {
-  SetError(error, "%s%s", "[libpq] Unknown option ", key);
+  InternalAdbcSetError(error, "%s%s", "[libpq] Unknown option ", key);
   return ADBC_STATUS_NOT_IMPLEMENTED;
 }
 
 AdbcStatusCode PostgresDatabase::Connect(PGconn** conn, struct AdbcError* error) {
   if (uri_.empty()) {
-    SetError(error, "%s",
-             "[libpq] Must set database option 'uri' before creating a connection");
+    InternalAdbcSetError(
+        error, "%s",
+        "[libpq] Must set database option 'uri' before creating a connection");
     return ADBC_STATUS_INVALID_STATE;
   }
   *conn = PQconnectdb(uri_.c_str());
   if (PQstatus(*conn) != CONNECTION_OK) {
-    SetError(error, "%s%s", "[libpq] Failed to connect: ", PQerrorMessage(*conn));
+    InternalAdbcSetError(error, "%s%s",
+                         "[libpq] Failed to connect: ", PQerrorMessage(*conn));
     PQfinish(*conn);
     *conn = nullptr;
     return ADBC_STATUS_IO;
@@ -131,7 +134,7 @@ AdbcStatusCode PostgresDatabase::Disconnect(PGconn** conn, struct AdbcError* err
   PQfinish(*conn);
   *conn = nullptr;
   if (--open_connections_ < 0) {
-    SetError(error, "%s", "[libpq] Open connection count underflowed");
+    InternalAdbcSetError(error, "%s", "[libpq] Open connection count underflowed");
     return ADBC_STATUS_INTERNAL;
   }
   return ADBC_STATUS_OK;
@@ -294,7 +297,7 @@ static Status InsertPgAttributeResult(
     UNWRAP_RESULT(int64_t col_oid, item[2].ParseInteger());
 
     if (type_oid != current_type_oid && !columns.empty()) {
-      resolver->InsertClass(current_type_oid, columns);
+      resolver->InsertClass(static_cast<uint32_t>(current_type_oid), columns);
       columns.clear();
       current_type_oid = type_oid;
     }
@@ -347,12 +350,12 @@ static Status InsertPgTypeResult(const PqResultHelper& result,
     type_item.class_oid = static_cast<uint32_t>(typrelid);
     type_item.base_oid = static_cast<uint32_t>(typbasetype);
 
-    int result = resolver->Insert(type_item, nullptr);
+    int insert_result = resolver->Insert(type_item, nullptr);
 
     // If there's an array type and the insert succeeded, add that now too
-    if (result == NANOARROW_OK && typarray != 0) {
+    if (insert_result == NANOARROW_OK && typarray != 0) {
       std::string array_typname = "_" + std::string(typname);
-      type_item.oid = typarray;
+      type_item.oid = static_cast<uint32_t>(typarray);
       type_item.typname = array_typname.c_str();
       type_item.typreceive = "array_recv";
       type_item.child_oid = static_cast<uint32_t>(oid);

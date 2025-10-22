@@ -18,8 +18,10 @@
 package snowflake
 
 import (
+	"context"
 	"errors"
 	"maps"
+	"net/http"
 	"runtime/debug"
 	"strings"
 
@@ -71,6 +73,16 @@ const (
 	// with a scale of 0 will be returned as Int64 columns, and a non-zero
 	// scale will return a Float64 column.
 	OptionUseHighPrecision = "adbc.snowflake.sql.client_option.use_high_precision"
+	// OptionMaxTimestampPrecision controls the behavior of Timestamp values with
+	// Nanosecond precision. Native Go behavior is these values will overflow to an
+	// unpredictable value when the year is before year 1677 or after 2262. This option
+	// can control the behavior of the `timestamp_ltz`, `timestamp_ntz`, and `timestamp_tz` types.
+	//
+	// Valid values are
+	// `nanoseconds`: Use default behavior for nanoseconds.
+	// `nanoseconds_error_on_overflow`: Throws an error when the value will overflow to enforce integrity of the data.
+	// `microseconds`: Limits the max Timestamp precision to microseconds, which is safe for all values.
+	OptionMaxTimestampPrecision = "adbc.snowflake.sql.client_option.max_timestamp_precision"
 
 	OptionApplicationName  = "adbc.snowflake.sql.client_option.app_name"
 	OptionSSLSkipVerify    = "adbc.snowflake.sql.client_option.tls_skip_verify"
@@ -101,6 +113,9 @@ const (
 	// When true, the ID token is cached in the credential manager. True by default
 	// on Windows/OSX, false for Linux
 	OptionClientStoreTempCred = "adbc.snowflake.sql.client_option.store_temp_creds"
+	// Specify the identity provider to utilize for generating a workload identity
+	// federation attestation. Must be set when using OptionValueAuthWIF.
+	OptionIdentityProvider = "adbc.snowflake.sql.client_option.identity_provider"
 
 	// auth types are implemented by the Snowflake driver in gosnowflake
 	// general username password authentication
@@ -115,6 +130,24 @@ const (
 	OptionValueAuthJwt = "auth_jwt"
 	// use a username and password with mfa
 	OptionValueAuthUserPassMFA = "auth_mfa"
+	// use a programmatic access token
+	OptionValueAuthPat = "auth_pat"
+	// use Workload Identity Federation for auth, must also use option to specify the provider
+	OptionValueAuthWIF = "auth_wif"
+
+	// Use default behavior for nanoseconds.
+	OptionValueNanoseconds = "nanoseconds"
+	// throws an error when the value will overflow to enforce integrity of the data.
+	OptionValueNanosecondsNoOverflow = "nanoseconds_error_on_overflow"
+	// use a max of microseconds precision for timestamps
+	OptionValueMicroseconds = "microseconds"
+)
+
+// SQLSTATE codes
+// https://learn.microsoft.com/en-us/sql/odbc/reference/appendixes/appendix-a-odbc-error-codes
+const (
+	// Base table or view not found
+	SQLStateTableOrViewNotFound = "42S02"
 )
 
 var (
@@ -124,12 +157,16 @@ var (
 func init() {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		for _, dep := range info.Deps {
-			switch {
-			case dep.Path == "github.com/snowflakedb/gosnowflake":
+			switch dep.Path {
+			case "github.com/snowflakedb/gosnowflake":
 				infoVendorVersion = dep.Version
 			}
 		}
 	}
+
+	// Disable some stray logs
+	// https://github.com/snowflakedb/gosnowflake/pull/1332
+	_ = gosnowflake.GetLogger().SetLogLevel("warn")
 }
 
 func errToAdbcErr(code adbc.Status, err error) error {
@@ -148,7 +185,7 @@ func errToAdbcErr(code adbc.Status, err error) error {
 		var sqlstate [5]byte
 		copy(sqlstate[:], []byte(sferr.SQLState))
 
-		if sferr.SQLState == "42S02" {
+		if sferr.SQLState == SQLStateTableOrViewNotFound {
 			code = adbc.StatusNotFound
 		}
 
@@ -170,29 +207,99 @@ func quoteTblName(name string) string {
 	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
 }
 
+type config struct {
+	*gosnowflake.Config
+}
+
+// Option is a function type to set custom driver configurations.
+//
+// It is intended for configurations that cannot be provided from the standard options map,
+// e.g. the underlying HTTP transporter.
+type Option func(*config) error
+
+// WithTransporter sets the custom transporter to use for the Snowflake connection.
+// This allows to intercept HTTP requests and responses.
+func WithTransporter(transporter http.RoundTripper) Option {
+	return func(cfg *config) error {
+		cfg.Transporter = transporter
+		return nil
+	}
+}
+
+// Driver is the Snowflake driver interface.
+//
+// It extends the base adbc.Driver to provide additional options
+// when creating the Snowflake database.
+type Driver interface {
+	adbc.Driver
+
+	// NewDatabaseWithOptions creates a new Snowflake database with the provided options.
+	NewDatabaseWithOptions(map[string]string, ...Option) (adbc.Database, error)
+	NewDatabaseWithOptionsContext(context.Context, map[string]string, ...Option) (adbc.Database, error)
+}
+
+var _ Driver = (*driverImpl)(nil)
+
 type driverImpl struct {
 	driverbase.DriverImplBase
 }
 
 // NewDriver creates a new Snowflake driver using the given Arrow allocator.
-func NewDriver(alloc memory.Allocator) adbc.Driver {
+func NewDriver(alloc memory.Allocator) Driver {
 	info := driverbase.DefaultDriverInfo("Snowflake")
 	if infoVendorVersion != "" {
 		if err := info.RegisterInfoCode(adbc.InfoVendorVersion, infoVendorVersion); err != nil {
 			panic(err)
 		}
 	}
-	return driverbase.NewDriver(&driverImpl{DriverImplBase: driverbase.NewDriverImplBase(info, alloc)})
+	return &driverImpl{DriverImplBase: driverbase.NewDriverImplBase(info, alloc)}
 }
 
 func (d *driverImpl) NewDatabase(opts map[string]string) (adbc.Database, error) {
+	return d.NewDatabaseWithContext(context.Background(), opts)
+}
+
+func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string]string) (adbc.Database, error) {
+	return d.NewDatabaseWithOptionsContext(ctx, opts)
+}
+
+func (d *driverImpl) NewDatabaseWithOptions(
+	opts map[string]string,
+	optFuncs ...Option,
+) (adbc.Database, error) {
+	return d.NewDatabaseWithOptionsContext(context.Background(), opts, optFuncs...)
+}
+
+func (d *driverImpl) NewDatabaseWithOptionsContext(
+	ctx context.Context,
+	opts map[string]string,
+	optFuncs ...Option,
+) (adbc.Database, error) {
 	opts = maps.Clone(opts)
+
+	dbBase, err := driverbase.NewDatabaseImplBase(ctx, &d.DriverImplBase)
+	if err != nil {
+		return nil, err
+	}
+	dv, _ := dbBase.DriverInfo.GetInfoForInfoCode(adbc.InfoDriverVersion)
+	driverVersion := dv.(string)
+	defaultAppName := "[ADBC][Go-" + driverVersion + "]"
+
 	db := &databaseImpl{
-		DatabaseImplBase: driverbase.NewDatabaseImplBase(&d.DriverImplBase),
-		useHighPrecision: true,
+		DatabaseImplBase:      dbBase,
+		useHighPrecision:      true,
+		defaultAppName:        defaultAppName,
+		maxTimestampPrecision: Nanoseconds,
 	}
 	if err := db.SetOptions(opts); err != nil {
 		return nil, err
+	}
+
+	cfg := &config{Config: db.cfg}
+	for _, opt := range optFuncs {
+		if err := opt(cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	return driverbase.NewDatabase(db), nil

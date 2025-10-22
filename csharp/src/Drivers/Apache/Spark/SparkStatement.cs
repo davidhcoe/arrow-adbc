@@ -15,7 +15,6 @@
 * limitations under the License.
 */
 
-using System.Collections.Generic;
 using Apache.Arrow.Adbc.Drivers.Apache.Hive2;
 using Apache.Hive.Service.Rpc.Thrift;
 
@@ -26,48 +25,17 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
         internal SparkStatement(SparkConnection connection)
             : base(connection)
         {
-            foreach (KeyValuePair<string, string> kvp in connection.Properties)
-            {
-                switch (kvp.Key)
-                {
-                    case Options.BatchSize:
-                    case Options.PollTimeMilliseconds:
-                        {
-                            SetOption(kvp.Key, kvp.Value);
-                            break;
-                        }
-                }
-            }
         }
 
         protected override void SetStatementProperties(TExecuteStatementReq statement)
         {
-            // TODO: Ensure this is set dynamically depending on server capabilities.
-            statement.EnforceResultPersistenceMode = false;
-            statement.ResultPersistenceMode = 2;
-
-            statement.CanReadArrowResult = true;
-            statement.CanDownloadResult = true;
-            statement.ConfOverlay = SparkConnection.timestampConfig;
-            statement.UseArrowNativeTypes = new TSparkArrowTypes
-            {
-                TimestampAsArrow = true,
-                DecimalAsArrow = true,
-
-                // set to false so they return as string
-                // otherwise, they return as ARRAY_TYPE but you can't determine
-                // the object type of the items in the array
-                ComplexTypesAsArrow = false,
-                IntervalTypesAsArrow = false,
-            };
+            // This seems like a good idea to have the server timeout so it doesn't keep processing unnecessarily.
+            // Set in combination with a CancellationToken.
+            statement.QueryTimeout = QueryTimeoutSeconds;
         }
 
-        /// <summary>
-        /// Provides the constant string key values to the <see cref="AdbcStatement.SetOption(string, string)" /> method.
-        /// </summary>
-        public new sealed class Options : HiveServer2Statement.Options
-        {
-            // options specific to Spark go here
-        }
+        public override string AssemblyName => HiveServer2Connection.s_assemblyName;
+
+        public override string AssemblyVersion => HiveServer2Connection.s_assemblyVersion;
     }
 }

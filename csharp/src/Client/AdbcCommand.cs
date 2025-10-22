@@ -21,6 +21,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Data.SqlTypes;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Apache.Arrow.Types;
@@ -32,10 +33,11 @@ namespace Apache.Arrow.Adbc.Client
     /// </summary>
     public sealed class AdbcCommand : DbCommand
     {
-        private AdbcStatement _adbcStatement;
+        private readonly AdbcStatement _adbcStatement;
         private AdbcParameterCollection? _dbParameterCollection;
         private int _timeout = 30;
         private bool _disposed;
+        private string? _commandTimeoutProperty;
 
         /// <summary>
         /// Overloaded. Initializes <see cref="AdbcCommand"/>.
@@ -51,6 +53,7 @@ namespace Apache.Arrow.Adbc.Client
 
             this.DbConnection = adbcConnection;
             this.DecimalBehavior = adbcConnection.DecimalBehavior;
+            this.StructBehavior = adbcConnection.StructBehavior;
             this._adbcStatement = adbcConnection.CreateStatement();
         }
 
@@ -72,6 +75,7 @@ namespace Apache.Arrow.Adbc.Client
 
             this.DbConnection = adbcConnection;
             this.DecimalBehavior = adbcConnection.DecimalBehavior;
+            this.StructBehavior = adbcConnection.StructBehavior;
         }
 
         // For testing
@@ -80,6 +84,13 @@ namespace Apache.Arrow.Adbc.Client
             this._adbcStatement = adbcStatement;
             this.DbConnection = adbcConnection;
             this.DecimalBehavior = adbcConnection.DecimalBehavior;
+            this.StructBehavior = adbcConnection.StructBehavior;
+
+            if (adbcConnection.CommandTimeoutValue != null)
+            {
+                this.AdbcCommandTimeoutProperty = adbcConnection.CommandTimeoutValue.DriverPropertyName;
+                this.CommandTimeout = adbcConnection.CommandTimeoutValue.Value;
+            }
         }
 
         /// <summary>
@@ -89,6 +100,8 @@ namespace Apache.Arrow.Adbc.Client
         public AdbcStatement AdbcStatement => _disposed ? throw new ObjectDisposedException(nameof(AdbcCommand)) : this._adbcStatement;
 
         public DecimalBehavior DecimalBehavior { get; set; }
+
+        public StructBehavior StructBehavior { get; set; }
 
         public override string CommandText
         {
@@ -114,10 +127,31 @@ namespace Apache.Arrow.Adbc.Client
             }
         }
 
+        /// <summary>
+        /// Gets or sets the name of the command timeout property for the underlying ADBC driver.
+        /// </summary>
+        public string AdbcCommandTimeoutProperty
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(_commandTimeoutProperty))
+                    throw new InvalidOperationException("CommandTimeoutProperty is not set.");
+
+                return _commandTimeoutProperty!;
+            }
+            set => _commandTimeoutProperty = value;
+        }
+
         public override int CommandTimeout
         {
             get => _timeout;
-            set => _timeout = value;
+            set
+            {
+                // ensures the property exists before setting the CommandTimeout value
+                string property = AdbcCommandTimeoutProperty;
+                _adbcStatement.SetOption(property, value.ToString(CultureInfo.InvariantCulture));
+                _timeout = value;
+            }
         }
 
         protected override DbParameterCollection DbParameterCollection
@@ -204,7 +238,7 @@ namespace Apache.Arrow.Adbc.Client
                 case CommandBehavior.SchemaOnly:   // The schema is not known until a read happens
                 case CommandBehavior.Default:
                     QueryResult result = this.ExecuteQuery();
-                    return new AdbcDataReader(this, result, this.DecimalBehavior, closeConnection);
+                    return new AdbcDataReader(this, result, this.DecimalBehavior, this.StructBehavior, closeConnection);
 
                 default:
                     throw new InvalidOperationException($"{behavior} is not supported with this provider");
@@ -449,12 +483,61 @@ namespace Apache.Arrow.Adbc.Client
             }
         }
 
+        public override void Prepare()
+        {
+            _adbcStatement.Prepare();
+            var schema = _adbcStatement.GetParameterSchema();
+
+            DbParameterCollection.Clear();
+
+            foreach (Field field in schema.FieldsList)
+            {
+                AdbcParameter parameter = new AdbcParameter
+                {
+                    ParameterName = field.Name,
+                    IsNullable = field.IsNullable,
+                    DbType = field.DataType.TypeId switch
+                    {
+                        ArrowTypeId.UInt8 => DbType.Byte,
+                        ArrowTypeId.UInt16 => DbType.UInt16,
+                        ArrowTypeId.UInt32 => DbType.UInt32,
+                        ArrowTypeId.UInt64 => DbType.UInt64,
+                        ArrowTypeId.Int8 => DbType.SByte,
+                        ArrowTypeId.Int16 => DbType.Int16,
+                        ArrowTypeId.Int32 => DbType.Int32,
+                        ArrowTypeId.Int64 => DbType.Int64,
+                        ArrowTypeId.Float => DbType.Single,
+                        ArrowTypeId.Double => DbType.Double,
+                        ArrowTypeId.Boolean => DbType.Boolean,
+                        ArrowTypeId.String => DbType.String,
+                        ArrowTypeId.Date32 => DbType.Date,
+                        ArrowTypeId.Date64 => DbType.DateTime,
+                        ArrowTypeId.Time32 => DbType.Time,
+                        ArrowTypeId.Time64 => DbType.Time,
+                        ArrowTypeId.Timestamp => DbType.DateTime,
+                        ArrowTypeId.Decimal32 or
+                        ArrowTypeId.Decimal64 or
+                        ArrowTypeId.Decimal128 or
+                        ArrowTypeId.Decimal256 => DbType.Decimal,
+                        _ => DbType.Object,
+                    },
+                };
+                DbParameterCollection.Add(parameter);
+            }
+        }
+
+        protected override DbParameter CreateDbParameter()
+        {
+            return new AdbcParameter();
+        }
+
 #if NET5_0_OR_GREATER
         public override ValueTask DisposeAsync()
         {
             return base.DisposeAsync();
         }
 #endif
+
         #region NOT_IMPLEMENTED
 
         public override bool DesignTimeVisible { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
@@ -471,16 +554,6 @@ namespace Apache.Arrow.Adbc.Client
         public override object ExecuteScalar()
         {
             throw new NotImplementedException();
-        }
-
-        public override void Prepare()
-        {
-            throw new NotImplementedException();
-        }
-
-        protected override DbParameter CreateDbParameter()
-        {
-            return new AdbcParameter();
         }
 
         #endregion

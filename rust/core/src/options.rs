@@ -16,11 +16,11 @@
 // under the License.
 
 //! Various option and configuration types.
-use std::os::raw::c_int;
+use std::{os::raw::c_int, str::FromStr};
 
 use crate::{
+    constants,
     error::{Error, Status},
-    ffi::constants,
 };
 
 /// Option value.
@@ -33,18 +33,6 @@ pub enum OptionValue {
     Bytes(Vec<u8>),
     Int(i64),
     Double(f64),
-}
-
-impl OptionValue {
-    /// Gets the data type of the option's value.
-    pub(crate) fn get_type(&self) -> &str {
-        match self {
-            Self::String(_) => "String",
-            Self::Bytes(_) => "Bytes",
-            Self::Int(_) => "Int",
-            Self::Double(_) => "Double",
-        }
-    }
 }
 
 impl From<String> for OptionValue {
@@ -96,13 +84,20 @@ impl<const N: usize> From<&[u8; N]> for OptionValue {
 }
 
 /// ADBC revision versions.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+///
+/// The [`Default`] implementation returns the latest version.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AdbcVersion {
     /// Version 1.0.0.
     V100,
     /// Version 1.1.0.
+    ///
+    /// <https://arrow.apache.org/adbc/current/format/specification.html#version-1-1-0>
+    #[default]
     V110,
+    /// Version 1.2.0.
+    V120,
 }
 
 impl From<AdbcVersion> for c_int {
@@ -110,6 +105,7 @@ impl From<AdbcVersion> for c_int {
         match value {
             AdbcVersion::V100 => constants::ADBC_VERSION_1_0_0,
             AdbcVersion::V110 => constants::ADBC_VERSION_1_1_0,
+            AdbcVersion::V110 => constants::ADBC_VERSION_1_2_0,
         }
     }
 }
@@ -120,8 +116,24 @@ impl TryFrom<c_int> for AdbcVersion {
         match value {
             constants::ADBC_VERSION_1_0_0 => Ok(AdbcVersion::V100),
             constants::ADBC_VERSION_1_1_0 => Ok(AdbcVersion::V110),
-            _ => Err(Error::with_message_and_status(
-                format!("Unknown ADBC version: {}", value),
+            constants::ADBC_VERSION_1_2_0 => Ok(AdbcVersion::V120),
+            value => Err(Error::with_message_and_status(
+                format!("Unknown ADBC version: {value}"),
+                Status::InvalidArguments,
+            )),
+        }
+    }
+}
+
+impl FromStr for AdbcVersion {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1.0.0" | "1_0_0" | "100" => Ok(AdbcVersion::V100),
+            "1.1.0" | "1_1_0" | "110" => Ok(AdbcVersion::V110),
+            value => Err(Error::with_message_and_status(
+                format!("Unknown ADBC version: {value}"),
                 Status::InvalidArguments,
             )),
         }
@@ -129,7 +141,7 @@ impl TryFrom<c_int> for AdbcVersion {
 }
 
 /// Info codes for database/driver metadata.
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum InfoCode {
     /// The database vendor/product name (type: utf8).
@@ -212,7 +224,6 @@ impl TryFrom<u32> for InfoCode {
 
 /// Depth parameter for [get_objects][crate::Connection::get_objects] method.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum ObjectDepth {
     /// Catalogs, schemas, tables, and columns.
     All,
@@ -442,7 +453,6 @@ impl From<&str> for OptionStatement {
 
 /// Isolation level value for key [OptionConnection::IsolationLevel].
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum IsolationLevel {
     /// Use database or driver default isolation level.
     Default,
@@ -518,7 +528,6 @@ impl From<IsolationLevel> for OptionValue {
 
 /// Ingestion mode value for key [OptionStatement::IngestMode].
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum IngestMode {
     /// Create the table and insert data; error if the table exists.
     Create,
@@ -561,7 +570,6 @@ impl From<IngestMode> for OptionValue {
 
 /// Statistics about the data distribution.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub enum Statistics {
     /// The average byte width statistic. The average size in bytes of a row in
     /// the column. Value type is `float64`. For example, this is roughly the
@@ -601,7 +609,7 @@ impl TryFrom<i16> for Statistics {
             constants::ADBC_STATISTIC_NULL_COUNT_KEY => Ok(Self::NullCount),
             constants::ADBC_STATISTIC_ROW_COUNT_KEY => Ok(Self::RowCount),
             _ => Err(Error::with_message_and_status(
-                format!("Unknown standard statistic key: {}", value),
+                format!("Unknown standard statistic key: {value}"),
                 Status::InvalidArguments,
             )),
         }

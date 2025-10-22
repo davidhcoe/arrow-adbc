@@ -20,11 +20,21 @@
 package flightsql_test
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/textproto"
 	"os"
 	"strconv"
@@ -51,7 +61,9 @@ import (
 	"golang.org/x/exp/maps"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -68,24 +80,32 @@ type ServerBasedTests struct {
 	cnxn adbc.Connection
 }
 
-func (suite *ServerBasedTests) DoSetupSuite(srv flightsql.Server, srvMiddleware []flight.ServerMiddleware, dbArgs map[string]string) {
-	suite.s = flight.NewServerWithMiddleware(srvMiddleware)
+func (suite *ServerBasedTests) DoSetupSuite(srv flightsql.Server, srvMiddleware []flight.ServerMiddleware, dbArgs map[string]string, dialOpts ...grpc.DialOption) {
+	suite.setupFlightServer(srv, srvMiddleware)
+
+	suite.setupDatabase(dbArgs, dialOpts...)
+}
+
+func (suite *ServerBasedTests) setupDatabase(dbArgs map[string]string, dialOpts ...grpc.DialOption) {
+	var err error
+	uri := "grpc+tcp://" + suite.s.Addr().String()
+
+	args := map[string]string{
+		"uri": uri,
+	}
+	maps.Copy(args, dbArgs)
+	suite.db, err = (driver.NewDriver(memory.DefaultAllocator)).NewDatabaseWithOptions(args, dialOpts...)
+	suite.Require().NoError(err)
+}
+
+func (suite *ServerBasedTests) setupFlightServer(srv flightsql.Server, srvMiddleware []flight.ServerMiddleware, srvOpts ...grpc.ServerOption) {
+	suite.s = flight.NewServerWithMiddleware(srvMiddleware, srvOpts...)
 	suite.s.RegisterFlightService(flightsql.NewFlightServer(srv))
 	suite.Require().NoError(suite.s.Init("localhost:0"))
 	suite.s.SetShutdownOnSignals(os.Interrupt, os.Kill)
 	go func() {
 		_ = suite.s.Serve()
 	}()
-
-	uri := "grpc+tcp://" + suite.s.Addr().String()
-	var err error
-
-	args := map[string]string{
-		"uri": uri,
-	}
-	maps.Copy(args, dbArgs)
-	suite.db, err = (driver.NewDriver(memory.DefaultAllocator)).NewDatabase(args)
-	suite.Require().NoError(err)
 }
 
 func (suite *ServerBasedTests) SetupTest() {
@@ -104,10 +124,65 @@ func (suite *ServerBasedTests) TearDownSuite() {
 	suite.s.Shutdown()
 }
 
+func (suite *ServerBasedTests) generateCertOption() (*tls.Config, string) {
+	// Generate a self-signed certificate in-process for testing
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	suite.Require().NoError(err)
+	certTemplate := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Unit Tests Incorporated"},
+		},
+		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	certDer, err := x509.CreateCertificate(rand.Reader, &certTemplate, &certTemplate, &privKey.PublicKey, privKey)
+	suite.Require().NoError(err)
+	buffer := &bytes.Buffer{}
+	suite.Require().NoError(pem.Encode(buffer, &pem.Block{Type: "CERTIFICATE", Bytes: certDer}))
+	certBytes := make([]byte, buffer.Len())
+	copy(certBytes, buffer.Bytes())
+	buffer.Reset()
+	suite.Require().NoError(pem.Encode(buffer, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privKey)}))
+	keyBytes := make([]byte, buffer.Len())
+	copy(keyBytes, buffer.Bytes())
+
+	cert, err := tls.X509KeyPair(certBytes, keyBytes)
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(err)
+	tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+	return tlsConfig, string(certBytes)
+}
+
+func (suite *ServerBasedTests) openAndExecuteQuery(query string) {
+	var err error
+	suite.cnxn, err = suite.db.Open(context.Background())
+	suite.Require().NoError(err)
+	defer validation.CheckedClose(suite.T(), suite.cnxn)
+
+	stmt, err := suite.cnxn.NewStatement()
+	suite.Require().NoError(err)
+	defer validation.CheckedClose(suite.T(), stmt)
+
+	suite.Require().NoError(stmt.SetSqlQuery(query))
+	reader, _, err := stmt.ExecuteQuery(context.Background())
+	suite.NoError(err)
+	defer reader.Release()
+}
+
 // ---- Tests --------------------
 
 func TestAuthn(t *testing.T) {
 	suite.Run(t, &AuthnTests{})
+}
+
+func TestGrpcDialerOptions(t *testing.T) {
+	suite.Run(t, &DialerOptionsTests{})
 }
 
 func TestErrorDetails(t *testing.T) {
@@ -140,6 +215,14 @@ func TestMultiTable(t *testing.T) {
 
 func TestSessionOptions(t *testing.T) {
 	suite.Run(t, &SessionOptionTests{})
+}
+
+func TestGetObjects(t *testing.T) {
+	suite.Run(t, &GetObjectsTests{})
+}
+
+func TestOauth(t *testing.T) {
+	suite.Run(t, &OAuthTests{})
 }
 
 // ---- AuthN Tests --------------------
@@ -222,23 +305,346 @@ type AuthnTests struct {
 }
 
 func (suite *AuthnTests) SetupSuite() {
-	suite.DoSetupSuite(&AuthnTestServer{}, []flight.ServerMiddleware{
+	suite.setupFlightServer(&AuthnTestServer{}, []flight.ServerMiddleware{
 		{Stream: authnTestStream, Unary: authnTestUnary},
-	}, map[string]string{
-		driver.OptionAuthorizationHeader: "Bearer initial",
 	})
 }
 
+func (suite *AuthnTests) SetupTest() {
+	suite.setupDatabase(map[string]string{
+		"uri": "grpc+tcp://" + suite.s.Addr().String(),
+	})
+}
+
+func (suite *AuthnTests) TearDownTest() {
+	suite.NoError(suite.db.Close())
+	suite.db = nil
+}
+
+func (suite *AuthnTests) TearDownSuite() {
+	suite.s.Shutdown()
+}
+
 func (suite *AuthnTests) TestBearerTokenUpdated() {
+	err := suite.db.SetOptions(map[string]string{
+		driver.OptionAuthorizationHeader: "Bearer initial",
+	})
+	suite.Require().NoError(err)
+
 	// apache/arrow-adbc#584: when setting the auth header directly, the client should use any updated token value from the server if given
+
+	suite.openAndExecuteQuery("a-query")
+}
+
+type OAuthTests struct {
+	ServerBasedTests
+
+	oauthServer     *httptest.Server
+	mockOAuthServer *MockOAuthServer
+	pemCert         string
+}
+
+// MockOAuthServer simulates an OAuth 2.0 server for testing
+type MockOAuthServer struct {
+	// Track calls to validate server behavior
+	clientCredentialsCalls int
+	tokenExchangeCalls     int
+}
+
+func (m *MockOAuthServer) handleTokenRequest(w http.ResponseWriter, r *http.Request) {
+	// Parse the form to get the request parameters
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	grantType := r.FormValue("grant_type")
+
+	switch grantType {
+	case "client_credentials":
+		m.clientCredentialsCalls++
+		// Validate client credentials
+		clientID := r.FormValue("client_id")
+		clientSecret := r.FormValue("client_secret")
+
+		if clientID == "test-client" && clientSecret == "test-secret" {
+			// Return a valid token response
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"access_token": "test-client-token",
+				"token_type": "bearer",
+				"expires_in": 3600
+			}`))
+
+			return
+		}
+
+	case "urn:ietf:params:oauth:grant-type:token-exchange":
+		m.tokenExchangeCalls++
+		// Validate token exchange parameters
+		subjectToken := r.FormValue("subject_token")
+		subjectTokenType := r.FormValue("subject_token_type")
+
+		if subjectToken == "test-subject-token" &&
+			subjectTokenType == "urn:ietf:params:oauth:token-type:jwt" {
+			// Return a valid token response
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{
+				"access_token": "test-exchanged-token",
+				"token_type": "bearer",
+				"expires_in": 3600
+			}`))
+			return
+		}
+	}
+
+	// Default: return error for invalid request
+	http.Error(w, "Invalid request", http.StatusBadRequest)
+}
+
+func oauthTestUnary(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.InvalidArgument, "Could not get metadata")
+	}
+	auth := md.Get("authorization")
+	if len(auth) == 0 {
+		return nil, status.Error(codes.Unauthenticated, "No token")
+	} else if auth[0] != "Bearer test-exchanged-token" && auth[0] != "Bearer test-client-token" {
+		return nil, status.Error(codes.Unauthenticated, "Invalid token for unary call: "+auth[0])
+	}
+
+	md.Set("authorization", "Bearer final")
+	ctx = metadata.NewOutgoingContext(ctx, md)
+	return handler(ctx, req)
+}
+
+func (suite *OAuthTests) SetupSuite() {
+
+	tlsConfig, pemCertString := suite.generateCertOption()
+	suite.pemCert = pemCertString
+
+	suite.mockOAuthServer = &MockOAuthServer{}
+	suite.oauthServer = httptest.NewUnstartedServer(http.HandlerFunc(suite.mockOAuthServer.handleTokenRequest))
+	suite.oauthServer.TLS = tlsConfig
+	suite.oauthServer.StartTLS()
+
+	suite.setupFlightServer(&AuthnTestServer{}, []flight.ServerMiddleware{
+		{Unary: oauthTestUnary},
+	}, grpc.Creds(credentials.NewTLS(tlsConfig)))
+}
+
+func (suite *OAuthTests) TearDownSuite() {
+	suite.oauthServer.Close()
+	suite.s.Shutdown()
+}
+
+func (suite *OAuthTests) SetupTest() {
+	suite.setupDatabase(map[string]string{
+		"uri": "grpc+tls://" + suite.s.Addr().String(),
+	})
+}
+
+func (suite *OAuthTests) TearDownTest() {
+	suite.NoError(suite.db.Close())
+	suite.db = nil
+}
+
+func (suite *OAuthTests) TestTokenExchangeFlow() {
+	err := suite.db.SetOptions(map[string]string{
+		driver.OptionKeyOauthFlow:        driver.TokenExchange,
+		driver.OptionKeySubjectToken:     "test-subject-token",
+		driver.OptionKeySubjectTokenType: "urn:ietf:params:oauth:token-type:jwt",
+		driver.OptionKeyTokenURI:         suite.oauthServer.URL,
+		driver.OptionSSLRootCerts:        suite.pemCert,
+	})
+	suite.Require().NoError(err)
+
+	suite.openAndExecuteQuery("a-query")
+	suite.Equal(1, suite.mockOAuthServer.tokenExchangeCalls, "Token exchange flow should be called once")
+}
+
+func (suite *OAuthTests) TestClientCredentialsFlow() {
+	err := suite.db.SetOptions(map[string]string{
+		driver.OptionKeyOauthFlow:    driver.ClientCredentials,
+		driver.OptionKeyClientId:     "test-client",
+		driver.OptionKeyClientSecret: "test-secret",
+		driver.OptionKeyTokenURI:     suite.oauthServer.URL,
+		driver.OptionSSLRootCerts:    suite.pemCert,
+	})
+	suite.Require().NoError(err)
+
+	suite.cnxn, err = suite.db.Open(context.Background())
+	suite.Require().NoError(err)
+	defer validation.CheckedClose(suite.T(), suite.cnxn)
+
+	suite.openAndExecuteQuery("a-query")
+	// golang/oauth2 tries to call the token endpoint sending the client credentials in the authentication header,
+	// if it fails, it retries sending the client credentials in the request body.
+	// See https://code.google.com/p/goauth2/issues/detail?id=31 for background.
+	suite.Equal(2, suite.mockOAuthServer.clientCredentialsCalls, "Client credentials flow should be called once")
+}
+
+func (suite *OAuthTests) TestFailOauthWithTokenSet() {
+	err := suite.db.SetOptions(map[string]string{
+		driver.OptionAuthorizationHeader: "Bearer test-client-token",
+		driver.OptionKeyOauthFlow:        driver.ClientCredentials,
+		driver.OptionKeyClientId:         "test-client",
+		driver.OptionKeyClientSecret:     "test-secret",
+		driver.OptionKeyTokenURI:         suite.oauthServer.URL,
+	})
+	suite.Error(err, "Expected error for missing parameters")
+	suite.Contains(err.Error(), "Authentication conflict: Use either Authorization header OR username/password parameter")
+}
+
+func (suite *OAuthTests) TestMissingRequiredParamsTokenExchange() {
+	testCases := []struct {
+		name             string
+		options          map[string]string
+		expectedErrorMsg string
+	}{
+		{
+			name: "Missing token",
+			options: map[string]string{
+				driver.OptionKeyOauthFlow:        driver.TokenExchange,
+				driver.OptionKeySubjectTokenType: "urn:ietf:params:oauth:token-type:jwt",
+				driver.OptionKeyTokenURI:         suite.oauthServer.URL,
+			},
+			expectedErrorMsg: "token exchange grant requires adbc.flight.sql.oauth.exchange.subject_token",
+		},
+		{
+			name: "Missing subject token type",
+			options: map[string]string{
+				driver.OptionKeyOauthFlow:    driver.TokenExchange,
+				driver.OptionKeySubjectToken: "test-subject-token",
+				driver.OptionKeyTokenURI:     suite.oauthServer.URL,
+			},
+			expectedErrorMsg: "token exchange grant requires adbc.flight.sql.oauth.exchange.subject_token_type",
+		},
+		{
+			name: "Missing token URI",
+			options: map[string]string{
+				driver.OptionKeyOauthFlow:        driver.TokenExchange,
+				driver.OptionKeySubjectToken:     "test-subject-token",
+				driver.OptionKeySubjectTokenType: "urn:ietf:params:oauth:token-type:jwt",
+			},
+			expectedErrorMsg: "token exchange grant requires adbc.flight.sql.oauth.token_uri",
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			// We need to set options with the driver's SetOptions method
+			err := suite.db.SetOptions(tc.options)
+			suite.Error(err, "Expected error for missing parameters")
+			suite.Contains(err.Error(), tc.expectedErrorMsg)
+		})
+	}
+}
+func (suite *OAuthTests) TestMissingRequiredParamsClientCredentials() {
+	testCases := []struct {
+		name             string
+		options          map[string]string
+		expectedErrorMsg string
+	}{
+		{
+			name: "Missing client ID",
+			options: map[string]string{
+				driver.OptionKeyOauthFlow:    driver.ClientCredentials,
+				driver.OptionKeyClientSecret: "test-secret",
+				driver.OptionKeyTokenURI:     suite.oauthServer.URL,
+			},
+			expectedErrorMsg: "client credentials grant requires adbc.flight.sql.oauth.client_id",
+		},
+		{
+			name: "Missing client secret",
+			options: map[string]string{
+				driver.OptionKeyOauthFlow: driver.ClientCredentials,
+				driver.OptionKeyClientId:  "test-client",
+				driver.OptionKeyTokenURI:  suite.oauthServer.URL,
+			},
+			expectedErrorMsg: "client credentials grant requires adbc.flight.sql.oauth.client_secret",
+		},
+		{
+			name: "Missing token URI",
+			options: map[string]string{
+				driver.OptionKeyOauthFlow:    driver.ClientCredentials,
+				driver.OptionKeyClientId:     "test-client",
+				driver.OptionKeyClientSecret: "test-secret",
+			},
+			expectedErrorMsg: "client credentials grant requires adbc.flight.sql.oauth.token_uri",
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			// We need to set options with the driver's SetOptions method
+			err := suite.db.SetOptions(tc.options)
+			suite.Error(err, "Expected error for missing parameters")
+			suite.Contains(err.Error(), tc.expectedErrorMsg)
+		})
+	}
+}
+
+func (suite *OAuthTests) TestInvalidOAuthFlow() {
+	err := suite.db.SetOptions(map[string]string{
+		driver.OptionKeyOauthFlow:    "invalid-flow",
+		driver.OptionKeySubjectToken: "test-token",
+	})
+
+	suite.Error(err, "Expected error for invalid OAuth flow")
+	suite.Contains(err.Error(), "Not Implemented: oauth flow not implemented: invalid-flow")
+}
+
+// ---- Grpc Dialer Options Tests --------------
+
+type DialerOptionsTests struct {
+	ServerBasedTests
+	statsHandler *dialerOptionsGrpcStatsHandler
+}
+
+type dialerOptionsGrpcStatsHandler struct {
+	connectionsHandled int
+	rpcsHandled        int
+	connectionsTagged  int
+	rpcsTagged         int
+}
+
+func (d *dialerOptionsGrpcStatsHandler) HandleConn(ctx context.Context, stat stats.ConnStats) {
+	d.connectionsHandled++
+}
+func (d *dialerOptionsGrpcStatsHandler) HandleRPC(ctx context.Context, stat stats.RPCStats) {
+	d.rpcsHandled++
+}
+func (d *dialerOptionsGrpcStatsHandler) TagConn(ctx context.Context, stat *stats.ConnTagInfo) context.Context {
+	d.connectionsTagged++
+	return ctx
+}
+func (d *dialerOptionsGrpcStatsHandler) TagRPC(ctx context.Context, stat *stats.RPCTagInfo) context.Context {
+	d.rpcsTagged++
+	return ctx
+}
+
+func (suite *DialerOptionsTests) SetupSuite() {
+	suite.statsHandler = &dialerOptionsGrpcStatsHandler{}
+	suite.DoSetupSuite(&AuthnTestServer{}, nil, nil, grpc.WithStatsHandler(suite.statsHandler))
+}
+
+// TestGrpcObserved validates that the grpc stats handler that was passed through correctly to the underlying grpc client.
+func (suite *DialerOptionsTests) TestGrpcObserved() {
 	stmt, err := suite.cnxn.NewStatement()
 	suite.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(suite.T(), stmt)
 
 	suite.Require().NoError(stmt.SetSqlQuery("timeout"))
 	reader, _, err := stmt.ExecuteQuery(context.Background())
 	suite.NoError(err)
 	defer reader.Release()
+
+	suite.Less(0, suite.statsHandler.connectionsTagged)
+	suite.Less(0, suite.statsHandler.connectionsHandled)
+	suite.Less(0, suite.statsHandler.rpcsTagged)
+	suite.Less(0, suite.statsHandler.rpcsHandled)
 }
 
 // ---- Error Details Tests --------------------
@@ -308,7 +714,7 @@ func (suite *ErrorDetailsTests) SetupSuite() {
 func (ts *ErrorDetailsTests) TestBinaryDetails() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetSqlQuery("binaryheader"))
 
@@ -345,7 +751,7 @@ func (ts *ErrorDetailsTests) TestBinaryDetails() {
 func (ts *ErrorDetailsTests) TestGetFlightInfo() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetSqlQuery("details"))
 
@@ -372,7 +778,7 @@ func (ts *ErrorDetailsTests) TestGetFlightInfo() {
 func (ts *ErrorDetailsTests) TestDoGet() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetSqlQuery("query"))
 
@@ -407,7 +813,7 @@ func (ts *ErrorDetailsTests) TestDoGet() {
 func (ts *ErrorDetailsTests) TestVendorCode() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetSqlQuery("vendorcode"))
 
@@ -446,6 +852,10 @@ func (srv *ExecuteSchemaTestServer) CreatePreparedStatement(ctx context.Context,
 	return flightsql.ActionCreatePreparedStatementResult{}, status.Error(codes.Unimplemented, "CreatePreparedStatement not implemented")
 }
 
+func (srv *ExecuteSchemaTestServer) ClosePreparedStatement(ctx context.Context, req flightsql.ActionClosePreparedStatementRequest) error {
+	return nil
+}
+
 type ExecuteSchemaTests struct {
 	ServerBasedTests
 }
@@ -459,7 +869,7 @@ func (suite *ExecuteSchemaTests) SetupSuite() {
 func (ts *ExecuteSchemaTests) TestNoQuery() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	es := stmt.(adbc.StatementExecuteSchema)
 	_, err = es.ExecuteSchema(context.Background())
@@ -472,7 +882,7 @@ func (ts *ExecuteSchemaTests) TestNoQuery() {
 func (ts *ExecuteSchemaTests) TestPreparedQuery() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetSqlQuery("sample query"))
 	ts.NoError(stmt.Prepare(context.Background()))
@@ -492,7 +902,7 @@ func (ts *ExecuteSchemaTests) TestPreparedQuery() {
 func (ts *ExecuteSchemaTests) TestQuery() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetSqlQuery("sample query"))
 
@@ -821,7 +1231,7 @@ func (suite *IncrementalPollTests) SetupSuite() {
 func (ts *IncrementalPollTests) TestMaxProgress() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 	opts := stmt.(adbc.GetSetOptions)
 
 	val, err := opts.GetOptionDouble(adbc.OptionKeyMaxProgress)
@@ -832,7 +1242,7 @@ func (ts *IncrementalPollTests) TestMaxProgress() {
 func (ts *IncrementalPollTests) TestOptionValue() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 	opts := stmt.(adbc.GetSetOptions)
 
 	val, err := opts.GetOption(adbc.OptionKeyIncremental)
@@ -854,7 +1264,7 @@ func (ts *IncrementalPollTests) TestAppMetadata() {
 	ctx, cancel := context.WithCancel(context.Background())
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetOption(adbc.OptionKeyIncremental, adbc.OptionValueEnabled))
 
@@ -898,7 +1308,7 @@ func (ts *IncrementalPollTests) TestUnavailable() {
 	ctx := context.Background()
 	stmt, err := ts.cnxn.NewStatement()
 	ts.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.NoError(stmt.SetOption(adbc.OptionKeyIncremental, adbc.OptionValueEnabled))
 
@@ -952,7 +1362,7 @@ func (ts *IncrementalPollTests) TestQuery() {
 		ts.Run(name, func() {
 			stmt, err := ts.cnxn.NewStatement()
 			ts.NoError(err)
-			defer stmt.Close()
+			defer validation.CheckedClose(ts.T(), stmt)
 
 			ts.NoError(stmt.SetOption(adbc.OptionKeyIncremental, adbc.OptionValueEnabled))
 
@@ -971,7 +1381,7 @@ func (ts *IncrementalPollTests) TestQueryPrepared() {
 		ts.Run(name, func() {
 			stmt, err := ts.cnxn.NewStatement()
 			ts.NoError(err)
-			defer stmt.Close()
+			defer validation.CheckedClose(ts.T(), stmt)
 
 			ts.NoError(stmt.SetOption(adbc.OptionKeyIncremental, adbc.OptionValueEnabled))
 
@@ -992,7 +1402,7 @@ func (ts *IncrementalPollTests) TestQueryPreparedTransaction() {
 			ts.NoError(ts.cnxn.(adbc.PostInitOptions).SetOption(adbc.OptionKeyAutoCommit, adbc.OptionValueDisabled))
 			stmt, err := ts.cnxn.NewStatement()
 			ts.NoError(err)
-			defer stmt.Close()
+			defer validation.CheckedClose(ts.T(), stmt)
 
 			ts.NoError(stmt.SetOption(adbc.OptionKeyIncremental, adbc.OptionValueEnabled))
 
@@ -1013,7 +1423,7 @@ func (ts *IncrementalPollTests) TestQueryTransaction() {
 			ts.NoError(ts.cnxn.(adbc.PostInitOptions).SetOption(adbc.OptionKeyAutoCommit, adbc.OptionValueDisabled))
 			stmt, err := ts.cnxn.NewStatement()
 			ts.NoError(err)
-			defer stmt.Close()
+			defer validation.CheckedClose(ts.T(), stmt)
 
 			ts.NoError(stmt.SetOption(adbc.OptionKeyIncremental, adbc.OptionValueEnabled))
 
@@ -1190,7 +1600,7 @@ func (ts *TimeoutTests) TestGetSet() {
 	}
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	for _, v := range []interface{}{ts.db, ts.cnxn, stmt} {
 		getset := v.(adbc.GetSetOptions)
@@ -1249,14 +1659,13 @@ func (ts *TimeoutTests) TestDoActionTimeout() {
 
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.Require().NoError(stmt.SetSqlQuery("fetch"))
 	var adbcErr adbc.Error
 	ts.ErrorAs(stmt.Prepare(context.Background()), &adbcErr)
 	ts.Equal(adbc.StatusTimeout, adbcErr.Code, adbcErr.Error())
-	// Exact match - we don't want extra fluff in the message
-	ts.Equal("[FlightSQL] context deadline exceeded (DeadlineExceeded; Prepare)", adbcErr.Msg)
+	// It seems gRPC isn't stable about the error message, unfortunately
 }
 
 func (ts *TimeoutTests) TestDoGetTimeout() {
@@ -1265,7 +1674,7 @@ func (ts *TimeoutTests) TestDoGetTimeout() {
 
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.Require().NoError(stmt.SetSqlQuery("fetch"))
 	var adbcErr adbc.Error
@@ -1280,7 +1689,7 @@ func (ts *TimeoutTests) TestDoPutTimeout() {
 
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.Require().NoError(stmt.SetSqlQuery("timeout"))
 	var adbcErr adbc.Error
@@ -1295,7 +1704,7 @@ func (ts *TimeoutTests) TestGetFlightInfoTimeout() {
 
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.Require().NoError(stmt.SetSqlQuery("timeout"))
 	var adbcErr adbc.Error
@@ -1312,7 +1721,7 @@ func (ts *TimeoutTests) TestDontTimeout() {
 
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 
 	ts.Require().NoError(stmt.SetSqlQuery("notimeout"))
 	// GetFlightInfo will sleep for one second and DoGet will also
@@ -1323,7 +1732,7 @@ func (ts *TimeoutTests) TestDontTimeout() {
 	defer rr.Release()
 
 	ts.True(rr.Next())
-	rec := rr.Record()
+	rec := rr.RecordBatch()
 
 	sc := arrow.NewSchema([]arrow.Field{{Name: "a", Type: arrow.PrimitiveTypes.Int32, Nullable: true}}, nil)
 	expected, _, err := array.RecordFromJSON(memory.DefaultAllocator, sc, strings.NewReader(`[{"a": 5}]`))
@@ -1335,7 +1744,7 @@ func (ts *TimeoutTests) TestDontTimeout() {
 func (ts *TimeoutTests) TestBadAddress() {
 	stmt, err := ts.cnxn.NewStatement()
 	ts.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(ts.T(), stmt)
 	ts.Require().NoError(stmt.SetSqlQuery("bad endpoint"))
 
 	ts.Require().NoError(ts.db.(adbc.GetSetOptions).SetOptionDouble(driver.OptionTimeoutConnect, 5))
@@ -1469,7 +1878,7 @@ func (suite *CookieTests) SetupSuite() {
 func (suite *CookieTests) TestCookieUsage() {
 	stmt, err := suite.cnxn.NewStatement()
 	suite.Require().NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(suite.T(), stmt)
 
 	suite.Require().NoError(stmt.SetSqlQuery("timeout"))
 	reader, _, err := stmt.ExecuteQuery(context.Background())
@@ -1505,7 +1914,7 @@ var (
 
 func (server *DataTypeTestServer) DoGetStatement(ctx context.Context, tkt flightsql.StatementQueryTicket) (*arrow.Schema, <-chan flight.StreamChunk, error) {
 	var schema *arrow.Schema
-	var record arrow.Record
+	var record arrow.RecordBatch
 	var err error
 
 	cmd := string(tkt.GetStatementHandle())
@@ -1551,7 +1960,7 @@ func (suite *DataTypeTests) SetupSuite() {
 func (suite *DataTypeTests) DoTestCase(name string, schema *arrow.Schema) {
 	stmt, err := suite.cnxn.NewStatement()
 	suite.NoError(err)
-	defer stmt.Close()
+	defer validation.CheckedClose(suite.T(), stmt)
 
 	suite.NoError(stmt.SetSqlQuery(name))
 	reader, _, err := stmt.ExecuteQuery(context.Background())
@@ -1632,7 +2041,7 @@ func (server *MultiTableTestServer) DoGetTables(ctx context.Context, cmd flights
 	bldr.Field(4).(*array.BinaryBuilder).AppendValues([][]byte{buf1, buf2}, nil)
 	defer bldr.Release()
 
-	rec := bldr.NewRecord()
+	rec := bldr.NewRecordBatch()
 
 	ch := make(chan flight.StreamChunk)
 	go func() {
@@ -1874,112 +2283,284 @@ func (suite *SessionOptionTests) TestGetSetStringList() {
 	suite.Equal(`[]`, val)
 }
 
-type GetObjectsTests struct {
-	suite.Suite
+// ---- GetObjects Tests --------------------
 
-	Driver adbc.Driver
-	Quirks validation.DriverQuirks
-	Cnxn   adbc.Connection
-	ctx    context.Context
-	DB     adbc.Database
+type GetObjectsTestServer struct {
+	flightsql.BaseServer
+	catalogName string
+	schemaName  string
+	tableName   string
+	testData    map[string][]string
+}
+
+func (srv *GetObjectsTestServer) GetFlightInfoCatalogs(ctx context.Context, desc *flight.FlightDescriptor) (*flight.FlightInfo, error) {
+	return srv.flightInfoForSchema(schema_ref.Catalogs, desc), nil
+}
+
+func (srv *GetObjectsTestServer) GetFlightInfoSchemas(ctx context.Context, cmd flightsql.GetDBSchemas, desc *flight.FlightDescriptor) (*flight.FlightInfo, error) {
+	return srv.flightInfoForSchema(schema_ref.DBSchemas, desc), nil
+}
+
+func (srv *GetObjectsTestServer) GetFlightInfoTables(ctx context.Context, cmd flightsql.GetTables, desc *flight.FlightDescriptor) (*flight.FlightInfo, error) {
+	return srv.flightInfoForSchema(schema_ref.TablesWithIncludedSchema, desc), nil
+}
+
+func (srv *GetObjectsTestServer) flightInfoForSchema(sc *arrow.Schema, desc *flight.FlightDescriptor) *flight.FlightInfo {
+	return &flight.FlightInfo{
+		Endpoint:         []*flight.FlightEndpoint{{Ticket: &flight.Ticket{Ticket: desc.Cmd}}},
+		FlightDescriptor: desc,
+		Schema:           flight.SerializeSchema(sc, srv.Alloc),
+		TotalRecords:     -1,
+		TotalBytes:       -1,
+	}
+}
+
+func (srv *GetObjectsTestServer) DoGetCatalogs(ctx context.Context) (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	// no catalogs
+	schema := schema_ref.Catalogs
+	ch := make(chan flight.StreamChunk, 1)
+	defer close(ch)
+	return schema, ch, nil
+}
+
+func (srv *GetObjectsTestServer) DoGetTables(ctx context.Context, cmd flightsql.GetTables) (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	schemaBldr := array.NewBinaryBuilder(srv.Alloc, arrow.BinaryTypes.Binary)
+
+	columnFields := make([]arrow.Field, 0)
+	for key, val := range srv.testData {
+
+		bldr := flightsql.NewColumnMetadataBuilder()
+		defer bldr.Clear()
+
+		bldr.CatalogName(srv.catalogName)
+		bldr.SchemaName(srv.schemaName)
+		bldr.TableName(srv.tableName)
+		bldr.TypeName(val[0])
+		if val, err := strconv.ParseInt(val[2], 10, 32); err != nil {
+			panic(err)
+		} else {
+			bldr.Precision(int32(val))
+		}
+		if val, err := strconv.ParseInt(val[3], 10, 32); err != nil {
+			panic(err)
+		} else {
+			bldr.Scale(int32(val))
+		}
+		bldr.IsAutoIncrement(val[4] == "true")
+		bldr.IsCaseSensitive(val[5] == "true")
+		bldr.IsReadOnly(val[6] == "true")
+		bldr.IsSearchable(val[7] == "true")
+
+		colType, err := strconv.ParseInt(val[1], 10, 32)
+		if err != nil {
+			panic(err)
+		}
+		var fieldType arrow.DataType
+		switch colType {
+		case int64(arrow.PrimitiveTypes.Int32.ID()):
+			fieldType = arrow.PrimitiveTypes.Int32
+		case int64(arrow.PrimitiveTypes.Float32.ID()):
+			fieldType = arrow.PrimitiveTypes.Float32
+		case int64(arrow.PrimitiveTypes.Float64.ID()):
+			fieldType = arrow.PrimitiveTypes.Float64
+		default:
+			panic(fmt.Errorf("unknown column type %d", colType))
+		}
+
+		columnFields = append(columnFields, arrow.Field{
+			Name:     key,
+			Type:     fieldType,
+			Nullable: false,
+			Metadata: bldr.Metadata(),
+		})
+
+	}
+
+	schemaBldr.Append(flight.SerializeSchema(arrow.NewSchema(columnFields, nil), srv.Alloc))
+	schemaCol := schemaBldr.NewArray()
+	defer schemaCol.Release()
+
+	jsonStr := fmt.Sprintf(`[{"catalog_name": "%s", "db_schema_name": "%s", "table_name": "%s", "table_type": "TABLE"}]`,
+		srv.catalogName, // variable for catalog_name
+		srv.schemaName,  // variable for db_schema_name
+		srv.tableName)   // variable for table_type
+	tablesRecord, _, _ := array.RecordFromJSON(srv.Alloc, schema_ref.Tables, strings.NewReader(jsonStr))
+	defer tablesRecord.Release()
+
+	tablesRecordWithSchema := array.NewRecordBatch(schema_ref.TablesWithIncludedSchema, append(tablesRecord.Columns(), schemaCol), tablesRecord.NumRows())
+	defer tablesRecordWithSchema.Release()
+
+	ch := make(chan flight.StreamChunk)
+
+	rdr, err := array.NewRecordReader(schema_ref.TablesWithIncludedSchema, []arrow.RecordBatch{tablesRecordWithSchema})
+	go flight.StreamChunksFromReader(rdr, ch)
+	return schema_ref.TablesWithIncludedSchema, ch, err
+}
+
+func (srv *GetObjectsTestServer) DoGetDBSchemas(ctx context.Context, cmd flightsql.GetDBSchemas) (*arrow.Schema, <-chan flight.StreamChunk, error) {
+	schema := schema_ref.DBSchemas
+	ch := make(chan flight.StreamChunk, 1)
+	// Not really a proper match, but good enough
+	catalogs, _, err := array.FromJSON(srv.Alloc, arrow.BinaryTypes.String, strings.NewReader(fmt.Sprintf(`["%s"]`, srv.catalogName)))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer catalogs.Release()
+
+	dbSchemas, _, err := array.FromJSON(srv.Alloc, arrow.BinaryTypes.String, strings.NewReader(fmt.Sprintf(`["%s"]`, srv.schemaName)))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer dbSchemas.Release()
+
+	batch := array.NewRecordBatch(schema, []arrow.Array{catalogs, dbSchemas}, 1)
+	ch <- flight.StreamChunk{Data: batch}
+	close(ch)
+	return schema, ch, nil
+}
+
+type GetObjectsTests struct {
+	ServerBasedTests
+
+	catalogName string
+	schemaName  string
+	tableName   string
 }
 
 func (suite *GetObjectsTests) SetupSuite() {
-	var err error
-	suite.Driver = suite.Quirks.SetupDriver(suite.T())
-	suite.DB, err = suite.Driver.NewDatabase(suite.Quirks.DatabaseOptions())
-	suite.NoError(err)
-
-	suite.ctx = context.Background()
-	suite.Cnxn, err = suite.DB.Open(suite.ctx)
-	suite.Require().NoError(err)
+	srv := &GetObjectsTestServer{}
+	suite.catalogName = ""
+	suite.schemaName = "test_schema"
+	suite.tableName = "test_table"
+	srv.catalogName = suite.catalogName
+	srv.schemaName = suite.schemaName
+	srv.tableName = suite.tableName
+	srv.testData = map[string][]string{
+		"intcols": {
+			arrow.PrimitiveTypes.Int32.Name(),                  // TYPE_NAME
+			strconv.Itoa(int(arrow.PrimitiveTypes.Int32.ID())), // FieldType
+			strconv.Itoa(10),          // PRECISION
+			strconv.Itoa(15),          // SCALE
+			strconv.FormatBool(true),  // IS_AUTO_INCREMENT
+			strconv.FormatBool(false), // IS_CASE_SENSITIVE
+			strconv.FormatBool(true),  // IS_READ_ONLY
+			strconv.FormatBool(true),  // IS_SEARCHABLE
+		},
+		"floatcols": {
+			arrow.PrimitiveTypes.Float32.Name(),                  // TYPE_NAME
+			strconv.Itoa(int(arrow.PrimitiveTypes.Float32.ID())), // FieldType
+			strconv.Itoa(15),          // PRECISION
+			strconv.Itoa(15),          // SCALE
+			strconv.FormatBool(false), // IS_AUTO_INCREMENT
+			strconv.FormatBool(false), // IS_CASE_SENSITIVE
+			strconv.FormatBool(false), // IS_READ_ONLY
+			strconv.FormatBool(false), // IS_SEARCHABLE
+		},
+		"currencycol": {
+			"CURRENCY", // TYPE_NAME
+			strconv.Itoa(int(arrow.PrimitiveTypes.Float64.ID())), // FieldType
+			strconv.Itoa(15),          // PRECISION
+			strconv.Itoa(15),          // SCALE
+			strconv.FormatBool(false), // IS_AUTO_INCREMENT
+			strconv.FormatBool(false), // IS_CASE_SENSITIVE
+			strconv.FormatBool(false), // IS_READ_ONLY
+			strconv.FormatBool(false), // IS_SEARCHABLE
+		},
+	}
+	srv.Alloc = memory.NewCheckedAllocator(memory.DefaultAllocator)
+	suite.DoSetupSuite(srv, nil, nil)
 }
 
+// Testing metadata from flight driver is converted to xdbc metadata.
+// Ordering is being ignored to avoid flakiness as the order of the columns is not guaranteed.
 func (suite *GetObjectsTests) TestMetadataGetObjectsColumnsXdbc() {
-
-	suite.Require().NoError(suite.Quirks.DropTable(suite.Cnxn, "bulk_ingest"))
-
-	mdInts := make(map[string]string)
-	mdInts["TYPE_NAME"] = "NUMERIC"
-	mdInts["ORDINAL_POSITION"] = "1"
-	mdInts["XDBC_DATA_TYPE"] = strconv.Itoa(int(arrow.PrimitiveTypes.Int64.ID()))
-	mdInts["XDBC_TYPE_NAME"] = "NUMERIC"
-	mdInts["XDBC_SQL_DATA_TYPE"] = strconv.Itoa(int(internal.XdbcDataType_XDBC_BIGINT))
-	mdInts["XDBC_NULLABLE"] = strconv.FormatBool(true)
-	mdInts["XDBC_IS_NULLABLE"] = "YES"
-	mdInts["XDBC_PRECISION"] = strconv.Itoa(38)
-	mdInts["XDBC_SCALE"] = strconv.Itoa(0)
-	mdInts["XDBC_NUM_PREC_RADIX"] = strconv.Itoa(10)
-
-	mdStrings := make(map[string]string)
-	mdStrings["TYPE_NAME"] = "TEXT"
-	mdStrings["ORDINAL_POSITION"] = "2"
-	mdStrings["XDBC_DATA_TYPE"] = strconv.Itoa(int(arrow.BinaryTypes.String.ID()))
-	mdStrings["XDBC_TYPE_NAME"] = "TEXT"
-	mdStrings["XDBC_SQL_DATA_TYPE"] = strconv.Itoa(int(internal.XdbcDataType_XDBC_VARCHAR))
-	mdStrings["XDBC_IS_NULLABLE"] = "YES"
-	mdStrings["CHARACTER_MAXIMUM_LENGTH"] = strconv.Itoa(16777216)
-	mdStrings["XDBC_CHAR_OCTET_LENGTH"] = strconv.Itoa(16777216)
-
-	rec, _, err := array.RecordFromJSON(suite.Quirks.Alloc(), arrow.NewSchema(
-		[]arrow.Field{
-			{Name: "int64s", Type: arrow.PrimitiveTypes.Int64, Nullable: true, Metadata: arrow.MetadataFrom(mdInts)},
-			{Name: "strings", Type: arrow.BinaryTypes.String, Nullable: true, Metadata: arrow.MetadataFrom(mdStrings)},
-		}, nil), strings.NewReader(`[
-			{"int64s": 42, "strings": "foo"},
-			{"int64s": -42, "strings": null},
-			{"int64s": null, "strings": ""}
-		]`))
-	suite.Require().NoError(err)
-	defer rec.Release()
-
-	suite.Require().NoError(suite.Quirks.CreateSampleTable("bulk_ingest", rec))
-
 	tests := []struct {
-		name             string
-		colnames         []string
-		positions        []string
-		dataTypes        []string
-		comments         []string
-		xdbcDataType     []string
-		xdbcTypeName     []string
-		xdbcSqlDataType  []string
-		xdbcNullable     []string
-		xdbcIsNullable   []string
-		xdbcScale        []string
-		xdbcNumPrecRadix []string
-		xdbcCharMaxLen   []string
-		xdbcCharOctetLen []string
-		xdbcDateTimeSub  []string
+		name       string
+		columnName []string
+		//ordinalPosition           []string
+		remarks                   []string
+		xdbcDataType              []string
+		xdbcTypeName              []string
+		xdbcColumnSize            []string
+		xdbcDecimalDigits         []string
+		xdbcNumPrecRadix          []string
+		xdbcNullable              []string
+		xdbcColumnDef             []string
+		xdbcSqlDataType           []string
+		xdbcDatetimeSub           []string
+		xdbcCharOctetLength       []string
+		xdbcIsNullable            []string
+		xdbcScopeCatalog          []string
+		xdbcScopeSchema           []string
+		xdbcScopeTable            []string
+		xdbcIsAutoincrement       []string
+		xdbcIsAutogeneratedColumn []string
 	}{
 		{
-			"BASIC",                       // name
-			[]string{"int64s", "strings"}, // colNames
-			[]string{"1", "2"},            // positions
-			[]string{"NUMBER", "TEXT"},    // dataTypes
-			[]string{"", ""},              // comments
-			[]string{"9", "13"},           // xdbcDataType
-			[]string{"NUMBER", "TEXT"},    // xdbcTypeName
-			[]string{"-5", "12"},          // xdbcSqlDataType
-			[]string{"1", "1"},            // xdbcNullable
-			[]string{"YES", "YES"},        // xdbcIsNullable
-			[]string{"0", "0"},            // xdbcScale
-			[]string{"10", "0"},           // xdbcNumPrecRadix
-			[]string{"38", "16777216"},    // xdbcCharMaxLen (xdbcPrecision)
-			[]string{"0", "16777216"},     // xdbcCharOctetLen
-			[]string{"-5", "12", "0"},     // xdbcDateTimeSub
+			fmt.Sprintf("%s.%s.%s", suite.catalogName, suite.schemaName, suite.tableName),
+			[]string{"currencycol", "floatcols", "intcols"}, //columnName
+			//[]string{"1", "2", "3"}, //ordinalPosition
+			[]string{"currencycol_", "floatcols_", "intcols_"}, //remarks
+			[]string{ //xdbcDataType
+				"currencycol_" + strconv.Itoa(int(internal.ToXdbcDataType(arrow.PrimitiveTypes.Float64))),
+				"floatcols_" + strconv.Itoa(int(internal.ToXdbcDataType(arrow.PrimitiveTypes.Float32))),
+				"intcols_" + strconv.Itoa(int(internal.ToXdbcDataType(arrow.PrimitiveTypes.Int32))),
+			},
+			[]string{ //xdbcTypeName
+				"currencycol_CURRENCY",
+				"floatcols_" + arrow.PrimitiveTypes.Float32.Name(),
+				"intcols_" + arrow.PrimitiveTypes.Int32.Name(),
+			},
+			[]string{"currencycol_0", "floatcols_0", "intcols_0"}, //xdbcColumnSize
+			[]string{"currencycol_0", "floatcols_0", "intcols_0"}, //xdbcDecimalDigits
+			[]string{"currencycol_0", "floatcols_0", "intcols_0"}, //xdbcNumPrecRadix
+			[]string{"currencycol_0", "floatcols_0", "intcols_0"}, //xdbcNullable
+			[]string{"currencycol_", "floatcols_", "intcols_"},    //xdbcColumnDef
+			[]string{ //xdbcSqlDataType
+				"currencycol_" + strconv.Itoa(int(internal.ToXdbcDataType(arrow.PrimitiveTypes.Float64))),
+				"floatcols_" + strconv.Itoa(int(internal.ToXdbcDataType(arrow.PrimitiveTypes.Float32))),
+				"intcols_" + strconv.Itoa(int(internal.ToXdbcDataType(arrow.PrimitiveTypes.Int32))),
+			},
+			[]string{"currencycol_0", "floatcols_0", "intcols_0"}, //xdbcDatetimeSub
+			[]string{"currencycol_0", "floatcols_0", "intcols_0"}, //xdbcCharOctetLength
+			[]string{"currencycol_", "floatcols_", "intcols_"},    //xdbcIsNullable
+			[]string{ //xdbcScopeCatalog
+				"currencycol_" + suite.catalogName,
+				"floatcols_" + suite.catalogName,
+				"intcols_" + suite.catalogName,
+			},
+			[]string{ //xdbcScopeSchema
+				"currencycol_" + suite.schemaName,
+				"floatcols_" + suite.schemaName,
+				"intcols_" + suite.schemaName,
+			},
+			[]string{ //xdbcScopeTable
+				"currencycol_" + suite.tableName,
+				"floatcols_" + suite.tableName,
+				"intcols_" + suite.tableName,
+			},
+			[]string{ //xdbcIsAutoincrement
+				"currencycol_false",
+				"floatcols_false",
+				"intcols_true",
+			},
+			[]string{ //xdbcIsAutogeneratedColumn
+				"currencycol_false",
+				"floatcols_false",
+				"intcols_false",
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		suite.Run(tt.name, func() {
-			rdr, err := suite.Cnxn.GetObjects(suite.ctx, adbc.ObjectDepthColumns, nil, nil, nil, nil, nil)
+			rdr, err := suite.cnxn.GetObjects(context.Background(), adbc.ObjectDepthColumns, nil, nil, nil, nil, nil)
 			suite.Require().NoError(err)
 			defer rdr.Release()
 
 			suite.Truef(adbc.GetObjectsSchema.Equal(rdr.Schema()), "expected: %s\ngot: %s", adbc.GetObjectsSchema, rdr.Schema())
 			suite.True(rdr.Next())
-			rec := rdr.Record()
+			rec := rdr.RecordBatch()
 			suite.Greater(rec.NumRows(), int64(0))
 			var (
 				foundExpected        = false
@@ -1991,20 +2572,25 @@ func (suite *GetObjectsTests) TestMetadataGetObjectsColumnsXdbc() {
 				tableColumnsList     = dbSchemaTables.Field(2).(*array.List)
 				tableColumns         = tableColumnsList.ListValues().(*array.Struct)
 
-				colnames          = make([]string, 0)
-				positions         = make([]string, 0)
-				comments          = make([]string, 0)
-				xdbcDataTypes     = make([]string, 0)
-				dataTypes         = make([]string, 0)
-				xdbcTypeNames     = make([]string, 0)
-				xdbcCharMaxLens   = make([]string, 0)
-				xdbcScales        = make([]string, 0)
-				xdbcNumPrecRadixs = make([]string, 0)
-				xdbcNullables     = make([]string, 0)
-				xdbcSqlDataTypes  = make([]string, 0)
-				xdbcDateTimeSub   = make([]string, 0)
-				xdbcCharOctetLen  = make([]string, 0)
-				xdbcIsNullables   = make([]string, 0)
+				columnName = make([]string, 0)
+				//ordinalPosition           = make([]string, 0)
+				remarks                   = make([]string, 0)
+				xdbcDataType              = make([]string, 0)
+				xdbcTypeName              = make([]string, 0)
+				xdbcColumnSize            = make([]string, 0)
+				xdbcDecimalDigits         = make([]string, 0)
+				xdbcNumPrecRadix          = make([]string, 0)
+				xdbcNullable              = make([]string, 0)
+				xdbcColumnDef             = make([]string, 0)
+				xdbcSqlDataType           = make([]string, 0)
+				xdbcDatetimeSub           = make([]string, 0)
+				xdbcCharOctetLength       = make([]string, 0)
+				xdbcIsNullable            = make([]string, 0)
+				xdbcScopeCatalog          = make([]string, 0)
+				xdbcScopeSchema           = make([]string, 0)
+				xdbcScopeTable            = make([]string, 0)
+				xdbcIsAutoincrement       = make([]string, 0)
+				xdbcIsAutogeneratedColumn = make([]string, 0)
 			)
 			for row := 0; row < int(rec.NumRows()); row++ {
 				dbSchemaIdxStart, dbSchemaIdxEnd := catalogDbSchemasList.ValueOffsets(row)
@@ -2014,49 +2600,67 @@ func (suite *GetObjectsTests) TestMetadataGetObjectsColumnsXdbc() {
 					for tblIdx := tblIdxStart; tblIdx < tblIdxEnd; tblIdx++ {
 						tableName := dbSchemaTables.Field(0).(*array.String).Value(int(tblIdx))
 
-						if strings.EqualFold(schemaName, suite.Quirks.DBSchema()) && strings.EqualFold("bulk_ingest", tableName) {
+						if strings.EqualFold(schemaName, suite.schemaName) && strings.EqualFold(suite.tableName, tableName) {
 							foundExpected = true
 
 							colIdxStart, colIdxEnd := tableColumnsList.ValueOffsets(int(tblIdx))
 							for colIdx := colIdxStart; colIdx < colIdxEnd; colIdx++ {
 								name := tableColumns.Field(0).(*array.String).Value(int(colIdx))
-								colnames = append(colnames, strings.ToLower(name))
+								columnName = append(columnName, name)
 
-								pos := tableColumns.Field(1).(*array.Int32).Value(int(colIdx))
-								positions = append(positions, strconv.Itoa(int(pos)))
+								// pos := tableColumns.Field(1).(*array.Int32).Value(int(colIdx))
+								// ordinalPosition = append(ordinalPosition, strconv.Itoa(int(pos)))
 
-								comments = append(comments, tableColumns.Field(2).(*array.String).Value(int(colIdx)))
+								rm := tableColumns.Field(2).(*array.String).Value(int(colIdx))
+								remarks = append(remarks, name+"_"+rm)
 
 								xdt := tableColumns.Field(3).(*array.Int16).Value(int(colIdx))
-								xdbcDataTypes = append(xdbcDataTypes, strconv.Itoa(int(xdt)))
+								xdbcDataType = append(xdbcDataType, name+"_"+strconv.Itoa(int(xdt)))
 
 								dataType := tableColumns.Field(4).(*array.String).Value(int(colIdx))
-								dataTypes = append(dataTypes, dataType)
-								xdbcTypeNames = append(xdbcTypeNames, dataType)
+								xdbcTypeName = append(xdbcTypeName, name+"_"+dataType)
 
-								// these are column size attributes used for either precision for numbers OR the length for text
-								maxLenOrPrecision := tableColumns.Field(5).(*array.Int32).Value(int(colIdx))
-								xdbcCharMaxLens = append(xdbcCharMaxLens, strconv.Itoa(int(maxLenOrPrecision)))
+								columnSize := tableColumns.Field(5).(*array.Int32).Value(int(colIdx))
+								xdbcColumnSize = append(xdbcColumnSize, name+"_"+strconv.Itoa(int(columnSize)))
 
-								scale := tableColumns.Field(6).(*array.Int16).Value(int(colIdx))
-								xdbcScales = append(xdbcScales, strconv.Itoa(int(scale)))
+								decimalDigits := tableColumns.Field(6).(*array.Int16).Value(int(colIdx))
+								xdbcDecimalDigits = append(xdbcDecimalDigits, name+"_"+strconv.Itoa(int(decimalDigits)))
 
-								radix := tableColumns.Field(7).(*array.Int16).Value(int(colIdx))
-								xdbcNumPrecRadixs = append(xdbcNumPrecRadixs, strconv.Itoa(int(radix)))
+								numPrecRadix := tableColumns.Field(7).(*array.Int16).Value(int(colIdx))
+								xdbcNumPrecRadix = append(xdbcNumPrecRadix, name+"_"+strconv.Itoa(int(numPrecRadix)))
 
-								isnull := tableColumns.Field(8).(*array.Int16).Value(int(colIdx))
-								xdbcNullables = append(xdbcNullables, strconv.Itoa(int(isnull)))
+								nullable := tableColumns.Field(8).(*array.Int16).Value(int(colIdx))
+								xdbcNullable = append(xdbcNullable, name+"_"+strconv.Itoa(int(nullable)))
+
+								columnDef := tableColumns.Field(9).(*array.String).Value(int(colIdx))
+								xdbcColumnDef = append(xdbcColumnDef, name+"_"+columnDef)
 
 								sqlType := tableColumns.Field(10).(*array.Int16).Value(int(colIdx))
-								xdbcSqlDataTypes = append(xdbcSqlDataTypes, strconv.Itoa(int(sqlType)))
+								xdbcSqlDataType = append(xdbcSqlDataType, name+"_"+strconv.Itoa(int(sqlType)))
 
 								dtPrec := tableColumns.Field(11).(*array.Int16).Value(int(colIdx))
-								xdbcDateTimeSub = append(xdbcSqlDataTypes, strconv.Itoa(int(dtPrec)))
+								xdbcDatetimeSub = append(xdbcDatetimeSub, name+"_"+strconv.Itoa(int(dtPrec)))
 
 								charOctetLen := tableColumns.Field(12).(*array.Int32).Value(int(colIdx))
-								xdbcCharOctetLen = append(xdbcCharOctetLen, strconv.Itoa(int(charOctetLen)))
+								xdbcCharOctetLength = append(xdbcCharOctetLength, name+"_"+strconv.Itoa(int(charOctetLen)))
 
-								xdbcIsNullables = append(xdbcIsNullables, tableColumns.Field(13).(*array.String).Value(int(colIdx)))
+								isNullable := tableColumns.Field(13).(*array.String).Value(int(colIdx))
+								xdbcIsNullable = append(xdbcIsNullable, name+"_"+isNullable)
+
+								scopeCatalog := tableColumns.Field(14).(*array.String).Value(int(colIdx))
+								xdbcScopeCatalog = append(xdbcScopeCatalog, name+"_"+scopeCatalog)
+
+								scopeSchema := tableColumns.Field(15).(*array.String).Value(int(colIdx))
+								xdbcScopeSchema = append(xdbcScopeSchema, name+"_"+scopeSchema)
+
+								scopeTable := tableColumns.Field(16).(*array.String).Value(int(colIdx))
+								xdbcScopeTable = append(xdbcScopeTable, name+"_"+scopeTable)
+
+								isAutoIncrement := tableColumns.Field(17).(*array.Boolean).Value(int(colIdx))
+								xdbcIsAutoincrement = append(xdbcIsAutoincrement, name+"_"+strconv.FormatBool(isAutoIncrement))
+
+								isAutoGenerated := tableColumns.Field(18).(*array.Boolean).Value(int(colIdx))
+								xdbcIsAutogeneratedColumn = append(xdbcIsAutogeneratedColumn, name+"_"+strconv.FormatBool(isAutoGenerated))
 							}
 						}
 					}
@@ -2065,21 +2669,26 @@ func (suite *GetObjectsTests) TestMetadataGetObjectsColumnsXdbc() {
 
 			suite.False(rdr.Next())
 			suite.True(foundExpected)
-			suite.Equal(tt.colnames, colnames)                  // colNames
-			suite.Equal(tt.positions, positions)                // positions
-			suite.Equal(tt.comments, comments)                  // comments
-			suite.Equal(tt.xdbcDataType, xdbcDataTypes)         // xdbcDataType
-			suite.Equal(tt.dataTypes, dataTypes)                // dataTypes
-			suite.Equal(tt.xdbcTypeName, xdbcTypeNames)         // xdbcTypeName
-			suite.Equal(tt.xdbcCharMaxLen, xdbcCharMaxLens)     // xdbcCharMaxLen
-			suite.Equal(tt.xdbcScale, xdbcScales)               // xdbcScale
-			suite.Equal(tt.xdbcNumPrecRadix, xdbcNumPrecRadixs) // xdbcNumPrecRadix
-			suite.Equal(tt.xdbcNullable, xdbcNullables)         // xdbcNullable
-			suite.Equal(tt.xdbcSqlDataType, xdbcSqlDataTypes)   // xdbcSqlDataType
-			suite.Equal(tt.xdbcDateTimeSub, xdbcDateTimeSub)    // xdbcDateTimeSub
-			suite.Equal(tt.xdbcCharOctetLen, xdbcCharOctetLen)  // xdbcCharOctetLen
-			suite.Equal(tt.xdbcIsNullable, xdbcIsNullables)     // xdbcIsNullable
 
+			suite.ElementsMatch(tt.columnName, columnName, "columnName")
+			//suite.Equal(tt.ordinalPosition, ordinalPosition, "ordinalPosition")
+			suite.ElementsMatch(tt.remarks, remarks, "remarks")
+			suite.ElementsMatch(tt.xdbcDataType, xdbcDataType, "xdbcDataType")
+			suite.ElementsMatch(tt.xdbcTypeName, xdbcTypeName, "xdbcTypeName")
+			suite.ElementsMatch(tt.xdbcColumnSize, xdbcColumnSize, "xdbcColumnSize")
+			suite.ElementsMatch(tt.xdbcDecimalDigits, xdbcDecimalDigits, "xdbcDecimalDigits")
+			suite.ElementsMatch(tt.xdbcNumPrecRadix, xdbcNumPrecRadix, "xdbcNumPrecRadix")
+			suite.ElementsMatch(tt.xdbcNullable, xdbcNullable, "xdbcNullable")
+			suite.ElementsMatch(tt.xdbcColumnDef, xdbcColumnDef, "xdbcColumnDef")
+			suite.ElementsMatch(tt.xdbcSqlDataType, xdbcSqlDataType, "xdbcSqlDataType")
+			suite.ElementsMatch(tt.xdbcDatetimeSub, xdbcDatetimeSub, "xdbcDatetimeSub")
+			suite.ElementsMatch(tt.xdbcCharOctetLength, xdbcCharOctetLength, "xdbcCharOctetLength")
+			suite.ElementsMatch(tt.xdbcIsNullable, xdbcIsNullable, "xdbcIsNullable")
+			suite.ElementsMatch(tt.xdbcScopeCatalog, xdbcScopeCatalog, "xdbcScopeCatalog")
+			suite.ElementsMatch(tt.xdbcScopeSchema, xdbcScopeSchema, "xdbcScopeSchema")
+			suite.ElementsMatch(tt.xdbcScopeTable, xdbcScopeTable, "xdbcScopeTable")
+			suite.ElementsMatch(tt.xdbcIsAutoincrement, xdbcIsAutoincrement, "xdbcIsAutoincrement")
+			suite.ElementsMatch(tt.xdbcIsAutogeneratedColumn, xdbcIsAutogeneratedColumn, "xdbcIsAutogeneratedColumn")
 		})
 	}
 }

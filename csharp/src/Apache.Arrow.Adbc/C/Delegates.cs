@@ -72,6 +72,7 @@ namespace Apache.Arrow.Adbc.C
     internal unsafe delegate AdbcStatusCode StatementGetOptionDouble(CAdbcStatement* statement, byte* name, double* value, CAdbcError* error);
     internal unsafe delegate AdbcStatusCode StatementGetOptionInt(CAdbcStatement* statement, byte* name, long* value, CAdbcError* error);
     internal unsafe delegate AdbcStatusCode StatementNew(CAdbcConnection* connection, CAdbcStatement* statement, CAdbcError* error);
+    internal unsafe delegate AdbcStatusCode StatementNextResult(CAdbcStatement* statement, CArrowSchema* schema, CArrowArrayStream* stream, CAdbcPartitions* partitions, long* rows_affected, CAdbcError* error);
     internal unsafe delegate AdbcStatusCode StatementPrepare(CAdbcStatement* statement, CAdbcError* error);
     internal unsafe delegate AdbcStatusCode StatementSetOption(CAdbcStatement* statement, byte* name, byte* value, CAdbcError* error);
     internal unsafe delegate AdbcStatusCode StatementSetOptionBytes(CAdbcStatement* statement, byte* name, byte* value, nint length, CAdbcError* error);

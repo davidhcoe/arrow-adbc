@@ -19,14 +19,13 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Impala
 {
     internal enum ImpalaAuthType
     {
-        Invalid = 0,
         None,
         UsernameOnly,
         Basic,
         Empty = int.MaxValue,
     }
 
-    internal static class AuthTypeOptionsParser
+    internal static class ImpalaAuthTypeParser
     {
         internal static bool TryParse(string? authType, out ImpalaAuthType authTypeValue)
         {
@@ -36,17 +35,17 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Impala
                 case "":
                     authTypeValue = ImpalaAuthType.Empty;
                     return true;
-                case AuthTypeOptions.None:
+                case ImpalaAuthTypeConstants.None:
                     authTypeValue = ImpalaAuthType.None;
                     return true;
-                case AuthTypeOptions.UsernameOnly:
+                case ImpalaAuthTypeConstants.UsernameOnly:
                     authTypeValue = ImpalaAuthType.UsernameOnly;
                     return true;
-                case AuthTypeOptions.Basic:
+                case ImpalaAuthTypeConstants.Basic:
                     authTypeValue = ImpalaAuthType.Basic;
                     return true;
                 default:
-                    authTypeValue = ImpalaAuthType.Invalid;
+                    authTypeValue = default;
                     return false;
             }
         }

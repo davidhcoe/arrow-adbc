@@ -15,7 +15,6 @@
 * limitations under the License.
 */
 
-using System;
 using Apache.Arrow.Adbc.Drivers.Apache.Hive2;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Impala
@@ -27,17 +26,16 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Impala
         {
         }
 
-        public override object GetValue(IArrowArray arrowArray, int index)
-        {
-            throw new NotSupportedException();
-        }
-
         /// <summary>
         /// Provides the constant string key values to the <see cref="AdbcStatement.SetOption(string, string)" /> method.
         /// </summary>
-        public new sealed class Options : HiveServer2Statement.Options
+        public sealed class Options : ApacheParameters
         {
             // options specific to Impala go here
         }
+
+        public override string AssemblyName => HiveServer2Connection.s_assemblyName;
+
+        public override string AssemblyVersion => HiveServer2Connection.s_assemblyVersion;
     }
 }

@@ -14,22 +14,28 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+
 [package]
+authors.workspace = true
+categories.workspace = true
+description = "Public abstract API of ADBC"
+documentation.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
 name = "adbc_core"
-description = "Public abstract API, driver manager and driver exporter"
-version = { workspace = true }
-edition = { workspace = true }
-authors = { workspace = true }
-license = { workspace = true }
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+default = []
 
 [dependencies]
 arrow-array.workspace = true
 arrow-schema.workspace = true
-libloading = { version = "0.8", optional = true }
-once_cell = "1.19.0"
 
-[dev-dependencies]
-arrow-select.workspace = true
-
-[features]
-driver_manager = ["dep:libloading"]
+[package.metadata.docs.rs]
+all-features = true

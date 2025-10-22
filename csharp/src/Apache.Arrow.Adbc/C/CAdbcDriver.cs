@@ -37,14 +37,14 @@ namespace Apache.Arrow.Adbc.C
 
         /// <summary>
         /// Opaque driver-defined state.
-        /// This field is NULL if the driver is unintialized/freed (but
+        /// This field is NULL if the driver is uninitialized/freed (but
         /// it need not have a value even if the driver is initialized).
         /// </summary>
         public void* private_data;
 
         /// <summary>
         /// Opaque driver manager-defined state.
-        /// This field is NULL if the driver is unintialized/freed (but
+        /// This field is NULL if the driver is uninitialized/freed (but
         /// it need not have a value even if the driver is initialized).
         /// </summary>
         public void* private_manager;
@@ -704,6 +704,18 @@ namespace Apache.Arrow.Adbc.C
         internal IntPtr StatementSetOptionInt;
 #endif
 
+        #endregion
+
+        #region ADBC API Revision 1.0.0
+
+        /// <summary>
+        /// Set an integer option on a statement.
+        /// </summary>
+#if NET5_0_OR_GREATER
+        internal delegate* unmanaged<CAdbcStatement*, CArrowSchema*, CArrowArrayStream*, CAdbcPartitions*, long*, CAdbcError*, AdbcStatusCode> StatementNextResult;
+#else
+        internal IntPtr StatementNextResult;
+#endif
         #endregion
     }
 }

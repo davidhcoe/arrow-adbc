@@ -42,7 +42,15 @@ namespace Apache.Arrow.Adbc.C
         /// </summary>
         /// <param name="file">The path to the driver to load</param>
         /// <param name="entryPoint">The name of the entry point. If not provided, the name AdbcDriverInit will be used.</param>
-        public static AdbcDriver Load(string file, string? entryPoint = null)
+        public static AdbcDriver Load(string file, string? entryPoint = null) => Load(file, false, entryPoint);
+
+        /// <summary>
+        /// Loads an <see cref="AdbcDriver"/> from the file system.
+        /// </summary>
+        /// <param name="file">The path to the driver to load</param>
+        /// <param name="canUnload">Whether the driver can be safely unloaded</param>
+        /// <param name="entryPoint">The name of the entry point. If not provided, the name AdbcDriverInit will be used.</param>
+        public static AdbcDriver Load(string file, bool canUnload, string? entryPoint = null)
         {
             if (file == null)
             {
@@ -66,36 +74,39 @@ namespace Apache.Arrow.Adbc.C
                 IntPtr export = NativeLibrary.GetExport(library, entryPoint);
                 if (export == IntPtr.Zero)
                 {
-                    NativeLibrary.Free(library);
+                    if (canUnload) { NativeLibrary.Free(library); }
                     throw new ArgumentException($"Unable to find {entryPoint} export", nameof(file));
                 }
 
                 AdbcDriverInit init = Marshal.GetDelegateForFunctionPointer<AdbcDriverInit>(export);
                 CAdbcDriver driver = new CAdbcDriver();
-                int version;
+                int version = 0;
                 using (CallHelper caller = new CallHelper())
                 {
-                    try
+                    foreach (int ver in (int[])[ AdbcVersion.Version_1_2_0, AdbcVersion.Version_1_1_0, AdbcVersion.Version_1_0_0 ])
                     {
-                        caller.Call(init, AdbcVersion.Version_1_1_0, ref driver);
-                        version = AdbcVersion.Version_1_1_0;
-                    }
-                    catch (AdbcException e) when (e.Status == AdbcStatusCode.NotImplemented)
-                    {
-                        caller.Call(init, AdbcVersion.Version_1_0_0, ref driver);
-                        version = AdbcVersion.Version_1_0_0;
+                        try
+                        {
+                            caller.Call(init, ver, ref driver);
+                            version = ver;
+                            break;
+                        }
+                        catch (AdbcException e) when (e.Status == AdbcStatusCode.NotImplemented && ver != AdbcVersion.Version_1_0_0)
+                        {
+                            continue;
+                        }
                     }
 
                     ValidateDriver(ref driver, version);
 
-                    ImportedAdbcDriver result = new ImportedAdbcDriver(library, driver, version);
+                    ImportedAdbcDriver result = new ImportedAdbcDriver(library, driver, version, canUnload);
                     library = IntPtr.Zero;
                     return result;
                 }
             }
             finally
             {
-                if (library != IntPtr.Zero) { NativeLibrary.Free(library); }
+                if (library != IntPtr.Zero && canUnload) { NativeLibrary.Free(library); }
             }
         }
 
@@ -169,6 +180,10 @@ namespace Apache.Arrow.Adbc.C
             if (driver.StatementSetOptionBytes == empty) { driver.StatementSetOptionBytes = StatementSetOptionBytesDefault; }
             if (driver.StatementSetOptionDouble == empty) { driver.StatementSetOptionDouble = StatementSetOptionDoubleDefault; }
             if (driver.StatementSetOptionInt == empty) { driver.StatementSetOptionInt = StatementSetOptionIntDefault; }
+
+            if (version < AdbcVersion.Version_1_2_0) { return; }
+
+            if (driver.StatementNextResult == empty) { driver.StatementNextResult = StatementNextResultDefault; }
         }
 
         private static unsafe AdbcStatusCode NotImplemented(CAdbcError* error, string name)
@@ -199,14 +214,16 @@ namespace Apache.Arrow.Adbc.C
             private CAdbcDriver _nativeDriver;
             private int _version;
             private int _references;
+            private bool _canUnload;
             private bool _disposed;
 
-            public ImportedAdbcDriver(IntPtr library, CAdbcDriver nativeDriver, int version)
+            public ImportedAdbcDriver(IntPtr library, CAdbcDriver nativeDriver, int version, bool canUnload)
             {
                 _library = library;
                 _nativeDriver = nativeDriver;
                 _version = version;
                 _references = 1;
+                _canUnload = canUnload;
             }
 
             ~ImportedAdbcDriver()
@@ -260,7 +277,7 @@ namespace Apache.Arrow.Adbc.C
                             caller.Call(_nativeDriver.release, ref _nativeDriver);
                         }
 
-                        NativeLibrary.Free(_library);
+                        if (_canUnload) { NativeLibrary.Free(_library); }
                         _library = IntPtr.Zero;
                     }
                 }
@@ -683,6 +700,40 @@ namespace Apache.Arrow.Adbc.C
                 }
             }
 
+            public override AdbcStatement BulkIngest(
+                string? targetCatalog,
+                string? targetDbSchema,
+                string targetTableName,
+                BulkIngestMode mode,
+                bool isTemporary)
+            {
+                AdbcStatement statement = CreateStatement();
+                bool succeeded = false;
+                try
+                {
+                    statement.SetOption(AdbcOptions.Ingest.TargetTable, targetTableName);
+                    if (targetCatalog != null)
+                    {
+                        statement.SetOption(AdbcOptions.Ingest.TargetCatalog, targetCatalog);
+                    }
+                    if (targetDbSchema != null)
+                    {
+                        statement.SetOption(AdbcOptions.Ingest.TargetDbSchema, targetDbSchema);
+                    }
+                    if (isTemporary)
+                    {
+                        statement.SetOption(AdbcOptions.Ingest.Temporary, AdbcOptions.GetEnabled(isTemporary));
+                    }
+                    statement.SetOption(AdbcOptions.Ingest.Mode, AdbcOptions.GetIngestMode(mode));
+                    succeeded = true;
+                    return statement;
+                }
+                finally
+                {
+                    if (!succeeded) { statement.Dispose(); }
+                }
+            }
+
             public unsafe override void Commit()
             {
                 using (CallHelper caller = new CallHelper())
@@ -761,6 +812,15 @@ namespace Apache.Arrow.Adbc.C
             ~ImportedAdbcStatement()
             {
                 Dispose(false);
+            }
+
+            public override string? SqlQuery
+            {
+                set
+                {
+                    SetSqlQuery(value);
+                    base.SqlQuery = value;
+                }
             }
 
             private unsafe ref CAdbcDriver Driver
@@ -851,12 +911,6 @@ namespace Apache.Arrow.Adbc.C
 
             public unsafe override QueryResult ExecuteQuery()
             {
-                if (SqlQuery != null)
-                {
-                    // TODO: Consider moving this to the setter
-                    SetSqlQuery(SqlQuery);
-                }
-
                 using (CallHelper caller = new CallHelper())
                 {
                     fixed (CAdbcStatement* statement = &_nativeStatement)
@@ -877,12 +931,6 @@ namespace Apache.Arrow.Adbc.C
 
             public override unsafe Schema ExecuteSchema()
             {
-                if (SqlQuery != null)
-                {
-                    // TODO: Consider moving this to the setter
-                    SetSqlQuery(SqlQuery);
-                }
-
                 using (CallHelper caller = new CallHelper())
                 {
                     fixed (CAdbcStatement* statement = &_nativeStatement)
@@ -902,12 +950,6 @@ namespace Apache.Arrow.Adbc.C
 
             public unsafe override UpdateResult ExecuteUpdate()
             {
-                if (SqlQuery != null)
-                {
-                    // TODO: Consider moving this to the setter
-                    SetSqlQuery(SqlQuery);
-                }
-
                 using (CallHelper caller = new CallHelper())
                 {
                     fixed (CAdbcStatement* statement = &_nativeStatement)
@@ -928,12 +970,6 @@ namespace Apache.Arrow.Adbc.C
 
             public unsafe override PartitionedResult ExecutePartitioned()
             {
-                if (SqlQuery != null)
-                {
-                    // TODO: Consider moving this to the setter
-                    SetSqlQuery(SqlQuery);
-                }
-
                 using (CallHelper caller = new CallHelper())
                 {
                     fixed (CAdbcStatement* statement = &_nativeStatement)
@@ -975,6 +1011,41 @@ namespace Apache.Arrow.Adbc.C
                                 Marshal.FreeHGlobal((IntPtr)nativePartitions);
                             }
                         }
+                    }
+                }
+            }
+
+            public unsafe override Schema GetParameterSchema()
+            {
+                using (CallHelper caller = new CallHelper())
+                {
+                    fixed (CAdbcStatement* statement = &_nativeStatement)
+                    {
+                        caller.TranslateCode(
+#if NET5_0_OR_GREATER
+                            Driver.StatementGetParameterSchema
+#else
+                            Marshal.GetDelegateForFunctionPointer<StatementGetParameterSchema>(Driver.StatementGetParameterSchema)
+#endif
+                            (statement, caller.CreateSchema(), &caller._error));
+                    }
+                    return caller.ImportSchema();
+                }
+            }
+
+            public unsafe override void Prepare()
+            {
+                using (CallHelper caller = new CallHelper())
+                {
+                    fixed (CAdbcStatement* statement = &_nativeStatement)
+                    {
+                        caller.TranslateCode(
+#if NET5_0_OR_GREATER
+                            Driver.StatementPrepare
+#else
+                            Marshal.GetDelegateForFunctionPointer<StatementPrepare>(Driver.StatementPrepare)
+#endif
+                            (statement, &caller._error));
                     }
                 }
             }
@@ -1021,7 +1092,7 @@ namespace Apache.Arrow.Adbc.C
                 }
             }
 
-            private unsafe void SetSqlQuery(string sqlQuery)
+            private unsafe void SetSqlQuery(string? sqlQuery)
             {
                 fixed (CAdbcStatement* statement = &_nativeStatement)
                 {

@@ -22,7 +22,6 @@ import (
 	"bytes"
 	"compress/flate"
 	"context"
-	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"fmt"
@@ -31,6 +30,7 @@ import (
 	"path"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,7 +48,8 @@ import (
 
 const (
 	bindStageName            = "ADBC$BIND"
-	createTemporaryStageStmt = "CREATE OR REPLACE TEMPORARY STAGE " + bindStageName + " FILE_FORMAT = (TYPE = PARQUET USE_LOGICAL_TYPE = TRUE BINARY_AS_TEXT = FALSE USE_VECTORIZED_SCANNER=TRUE REPLACE_INVALID_CHARACTERS = TRUE)"
+	createTemporaryStageTmpl = "CREATE OR REPLACE TEMPORARY STAGE " + bindStageName + " FILE_FORMAT = (TYPE = PARQUET USE_LOGICAL_TYPE = TRUE BINARY_AS_TEXT = FALSE %s REPLACE_INVALID_CHARACTERS = TRUE)"
+	vectorizedScannerOption  = "USE_VECTORIZED_SCANNER=TRUE"
 	putQueryTmpl             = "PUT 'file:///tmp/placeholder/%s' @" + bindStageName + " OVERWRITE = TRUE"
 	copyQuery                = "COPY INTO IDENTIFIER(?) FROM @" + bindStageName + " MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE"
 	countQuery               = "SELECT COUNT(*) FROM IDENTIFIER(?)"
@@ -63,6 +64,8 @@ var (
 
 	defaultCompressionCodec compress.Compression = compress.Codecs.Snappy
 	defaultCompressionLevel int                  = flate.DefaultCompression
+
+	defaultVectorizedScanner bool = true
 
 	ErrNoRecordsInStream = errors.New("no records in stream to write")
 )
@@ -85,7 +88,7 @@ type ingestOptions struct {
 	// Number of Parquet files to upload in parallel.
 	//
 	// Greater concurrency can smooth out TCP congestion and help make use of
-	// available network bandwith, but will increase memory utilization.
+	// available network bandwidth, but will increase memory utilization.
 	// Default is 8. If set to 0, default value is used. Cannot be negative.
 	uploadConcurrency uint
 	// Maximum number of COPY operations to run concurrently.
@@ -110,6 +113,10 @@ type ingestOptions struct {
 	// notably Snappy.
 	// Default is the default level for the specified compressionCodec.
 	compressionLevel int
+	// Whether to use the vectorized scanner when ingesting Parquet files into Snowvake.
+	//
+	// Default is true.
+	vectorizedScanner bool
 }
 
 func DefaultIngestOptions() *ingestOptions {
@@ -120,6 +127,7 @@ func DefaultIngestOptions() *ingestOptions {
 		copyConcurrency:   defaultCopyConcurrency,
 		compressionCodec:  defaultCompressionCodec,
 		compressionLevel:  defaultCompressionLevel,
+		vectorizedScanner: defaultVectorizedScanner,
 	}
 }
 
@@ -140,7 +148,7 @@ func (st *statement) ingestRecord(ctx context.Context) (nrows int64, err error) 
 	)
 
 	// Check final row count of target table to get definitive rows affected
-	initialRows, err = countRowsInTable(ctx, st.cnxn.sqldb, target)
+	initialRows, err = countRowsInTable(ctx, st.cnxn.cn, target)
 	if err != nil {
 		st.bound.Release()
 		return
@@ -150,7 +158,7 @@ func (st *statement) ingestRecord(ctx context.Context) (nrows int64, err error) 
 	g := errgroup.Group{}
 
 	// writeParquet takes a channel of Records, but we only have one Record to write
-	recordCh := make(chan arrow.Record, 1)
+	recordCh := make(chan arrow.RecordBatch, 1)
 	recordCh <- st.bound
 	close(recordCh)
 
@@ -158,9 +166,10 @@ func (st *statement) ingestRecord(ctx context.Context) (nrows int64, err error) 
 	schema := st.bound.Schema()
 	r, w := io.Pipe()
 	bw := bufio.NewWriter(w)
-	g.Go(func() error {
-		defer r.Close()
-		defer bw.Flush()
+	g.Go(func() (err error) {
+		defer func() {
+			err = errors.Join(err, bw.Flush(), w.Close())
+		}()
 
 		err = writeParquet(schema, bw, recordCh, 0, parquetProps, arrowProps)
 		if err != io.EOF {
@@ -170,6 +179,12 @@ func (st *statement) ingestRecord(ctx context.Context) (nrows int64, err error) 
 	})
 
 	// Create a temporary stage, we can't start uploading until it has been created
+	var createTemporaryStageStmt string
+	if st.ingestOptions.vectorizedScanner {
+		createTemporaryStageStmt = fmt.Sprintf(createTemporaryStageTmpl, vectorizedScannerOption)
+	} else {
+		createTemporaryStageStmt = fmt.Sprintf(createTemporaryStageTmpl, "")
+	}
 	_, err = st.cnxn.cn.ExecContext(ctx, createTemporaryStageStmt, nil)
 	if err != nil {
 		return
@@ -195,7 +210,7 @@ func (st *statement) ingestRecord(ctx context.Context) (nrows int64, err error) 
 	}
 
 	// Check final row count of target table to get definitive rows affected
-	nrows, err = countRowsInTable(ctx, st.cnxn.sqldb, target)
+	nrows, err = countRowsInTable(ctx, st.cnxn.cn, target)
 	nrows = nrows - initialRows
 	return
 }
@@ -217,7 +232,7 @@ func (st *statement) ingestStream(ctx context.Context) (nrows int64, err error) 
 	)
 
 	// Check final row count of target table to get definitive rows affected
-	initialRows, err = countRowsInTable(ctx, st.cnxn.sqldb, target)
+	initialRows, err = countRowsInTable(ctx, st.cnxn.cn, target)
 	if err != nil {
 		return
 	}
@@ -225,7 +240,7 @@ func (st *statement) ingestStream(ctx context.Context) (nrows int64, err error) 
 	defer func() {
 		// Always check the resulting row count, even in the case of an error. We may have ingested part of the data.
 		ctx := context.WithoutCancel(ctx)
-		n, countErr := countRowsInTable(ctx, st.cnxn.sqldb, target)
+		n, countErr := countRowsInTable(ctx, st.cnxn.cn, target)
 		nrows = n - initialRows
 
 		// Ingestion, row-count check, or both could have failed
@@ -242,7 +257,7 @@ func (st *statement) ingestStream(ctx context.Context) (nrows int64, err error) 
 	g, gCtx := errgroup.WithContext(ctx)
 
 	// Read records into channel
-	records := make(chan arrow.Record, st.ingestOptions.writerConcurrency)
+	records := make(chan arrow.RecordBatch, st.ingestOptions.writerConcurrency)
 	g.Go(func() error {
 		return readRecords(gCtx, st.streamBind, records)
 	})
@@ -266,6 +281,12 @@ func (st *statement) ingestStream(ctx context.Context) (nrows int64, err error) 
 	})
 
 	// Create a temporary stage, we can't start uploading until it has been created
+	var createTemporaryStageStmt string
+	if st.ingestOptions.vectorizedScanner {
+		createTemporaryStageStmt = fmt.Sprintf(createTemporaryStageTmpl, vectorizedScannerOption)
+	} else {
+		createTemporaryStageStmt = fmt.Sprintf(createTemporaryStageTmpl, "")
+	}
 	_, err = st.cnxn.cn.ExecContext(ctx, createTemporaryStageStmt, nil)
 	if err != nil {
 		return
@@ -307,11 +328,11 @@ func newWriterProps(mem memory.Allocator, opts *ingestOptions) (*parquet.WriterP
 	return parquetProps, arrowProps
 }
 
-func readRecords(ctx context.Context, rdr array.RecordReader, out chan<- arrow.Record) error {
+func readRecords(ctx context.Context, rdr array.RecordReader, out chan<- arrow.RecordBatch) error {
 	defer close(out)
 
 	for rdr.Next() {
-		rec := rdr.Record()
+		rec := rdr.RecordBatch()
 		rec.Retain()
 
 		select {
@@ -321,10 +342,10 @@ func readRecords(ctx context.Context, rdr array.RecordReader, out chan<- arrow.R
 		}
 	}
 
-	return nil
+	return rdr.Err()
 }
 
-func writeRecordToParquet(wr *pqarrow.FileWriter, rec arrow.Record) (int64, error) {
+func writeRecordToParquet(wr *pqarrow.FileWriter, rec arrow.RecordBatch) (int64, error) {
 	if rec.NumRows() == 0 {
 		rec.Release()
 		return 0, nil
@@ -342,16 +363,25 @@ func writeRecordToParquet(wr *pqarrow.FileWriter, rec arrow.Record) (int64, erro
 func writeParquet(
 	schema *arrow.Schema,
 	w io.Writer,
-	in <-chan arrow.Record,
+	in <-chan arrow.RecordBatch,
 	targetSize int,
 	parquetProps *parquet.WriterProperties,
 	arrowProps pqarrow.ArrowWriterProperties,
-) error {
+) (err error) {
 	pqWriter, err := pqarrow.NewFileWriter(schema, w, parquetProps, arrowProps)
 	if err != nil {
 		return err
 	}
-	defer pqWriter.Close()
+	defer func() {
+		writerErr := pqWriter.Close()
+		if writerErr != nil {
+			if err == io.EOF {
+				err = writerErr
+			} else {
+				err = errors.Join(err, writerErr)
+			}
+		}
+	}()
 
 	var bytesWritten int64
 	for rec := range in {
@@ -386,7 +416,7 @@ func runParallelParquetWriters(
 	parquetProps *parquet.WriterProperties,
 	arrowProps pqarrow.ArrowWriterProperties,
 	buffers *bufferPool,
-	in <-chan arrow.Record,
+	in <-chan arrow.RecordBatch,
 	out chan<- *bytes.Buffer,
 ) error {
 	var once sync.Once
@@ -478,7 +508,7 @@ func uploadAllStreams(
 		select {
 		case <-ctx.Done():
 			// The context is canceled on error, so we wait for graceful shutdown of in-progress uploads.
-			// The gosnowflake.snowflakeFileTransferAgent does not currently propogate context, so we
+			// The gosnowflake.snowflakeFileTransferAgent does not currently propagate context, so we
 			// have to wait for uploads to finish for proper shutdown. (https://github.com/snowflakedb/gosnowflake/issues/1028)
 			return g.Wait()
 		default:
@@ -497,12 +527,14 @@ func uploadAllStreams(
 	return g.Wait()
 }
 
-func executeCopyQuery(ctx context.Context, cn snowflakeConn, tableName string, filesToCopy *fileSet) error {
+func executeCopyQuery(ctx context.Context, cn snowflakeConn, tableName string, filesToCopy *fileSet) (err error) {
 	rows, err := cn.QueryContext(ctx, copyQuery, []driver.NamedValue{{Value: tableName}})
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		err = errors.Join(err, rows.Close())
+	}()
 
 	fileColIdx := slices.Index(rows.Columns(), "file")
 	if fileColIdx < 0 {
@@ -534,8 +566,12 @@ func runCopyTasks(ctx context.Context, cn snowflakeConn, tableName string, concu
 
 	ctx, cancel := context.WithCancel(ctx)
 	g, ctx := errgroup.WithContext(ctx)
+	if concurrency == 0 {
+		concurrency = -1 // if concurrency is 0, then treat it as unlimited
+	}
 	g.SetLimit(concurrency)
 
+	done := make(chan struct{})
 	readyCh := make(chan struct{}, 1)
 	stopCh := make(chan interface{})
 
@@ -545,7 +581,7 @@ func runCopyTasks(ctx context.Context, cn snowflakeConn, tableName string, concu
 		// keep track of each file uploaded to the stage, until it has been copied into the table successfully
 		filesToCopy.Add(filename)
 
-		// readyFn is a no-op if the shutdown signal has already been recieved
+		// readyFn is a no-op if the shutdown signal has already been received
 		select {
 		case _, ok := <-stopCh:
 			if !ok {
@@ -570,6 +606,17 @@ func runCopyTasks(ctx context.Context, cn snowflakeConn, tableName string, concu
 		close(stopCh)
 		close(readyCh)
 
+		<-done
+
+		// wait for any currently running copies to finish before we continue
+		if err := g.Wait(); err != nil {
+			return err
+		}
+
+		if filesToCopy.Len() == 0 {
+			return nil
+		}
+
 		maxRetries := 5 // maybe make configurable?
 		for attempt := 0; attempt < maxRetries+1; attempt++ {
 			if attempt > 0 {
@@ -585,7 +632,7 @@ func runCopyTasks(ctx context.Context, cn snowflakeConn, tableName string, concu
 
 			if filesToCopy.Len() == 0 {
 				// all files successfully copied
-				return g.Wait()
+				return nil
 			}
 		}
 
@@ -601,6 +648,7 @@ func runCopyTasks(ctx context.Context, cn snowflakeConn, tableName string, concu
 	}
 
 	go func() {
+		defer close(done)
 		for {
 
 			// Block until there is at least 1 new file available for copy, or it's time to shutdown
@@ -625,15 +673,22 @@ func runCopyTasks(ctx context.Context, cn snowflakeConn, tableName string, concu
 	return readyFn, stopFn, cancelFn
 }
 
-func countRowsInTable(ctx context.Context, db *sql.DB, tableName string) (int64, error) {
-	var nrows int64
+func countRowsInTable(ctx context.Context, db snowflakeConn, tableName string) (rowCount int64, err error) {
+	rows, err := db.QueryContext(ctx, countQuery, []driver.NamedValue{{Value: tableName}})
+	if err != nil {
+		return 0, errToAdbcErr(adbc.StatusIO, err)
+	}
+	defer func() {
+		err = errors.Join(err, rows.Close())
+	}()
 
-	row := db.QueryRowContext(ctx, countQuery, tableName)
-	if err := row.Scan(&nrows); err != nil {
+	dest := make([]driver.Value, 1)
+	if err := rows.Next(dest); err != nil {
 		return 0, errToAdbcErr(adbc.StatusIO, err)
 	}
 
-	return nrows, nil
+	n, err := strconv.Atoi(dest[0].(string))
+	return int64(n), err
 }
 
 // Initializes a sync.Pool of *bytes.Buffer.
@@ -655,12 +710,12 @@ type bufferPool struct {
 }
 
 func (bp *bufferPool) GetBuffer() *bytes.Buffer {
-	return bp.Pool.Get().(*bytes.Buffer)
+	return bp.Get().(*bytes.Buffer)
 }
 
 func (bp *bufferPool) PutBuffer(buf *bytes.Buffer) {
 	buf.Reset()
-	bp.Pool.Put(buf)
+	bp.Put(buf)
 }
 
 type fileSet sync.Map

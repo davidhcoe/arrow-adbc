@@ -17,12 +17,25 @@
 
 import enum
 import functools
+import typing
 
 import adbc_driver_manager
 
 from ._version import __version__
 
-__all__ = ["StatementOptions", "connect", "__version__"]
+__all__ = [
+    "ConnectionOptions",
+    "StatementOptions",
+    "connect",
+    "__version__",
+]
+
+
+class ConnectionOptions(enum.Enum):
+    """Connection options specific to the PostgreSQL driver."""
+
+    #: Get the transaction status.
+    TRANSACTION_STATUS = "adbc.postgresql.transaction_status"
 
 
 class StatementOptions(enum.Enum):
@@ -34,10 +47,22 @@ class StatementOptions(enum.Enum):
     #: actual size may differ.
     BATCH_SIZE_HINT_BYTES = "adbc.postgresql.batch_size_hint_bytes"
 
+    #: Enable or disable the ``COPY`` optimization (default: enabled).
+    #:
+    #: This is necessary for some queries since PostgreSQL does not support
+    #: ``COPY`` with those queries, e.g. queries using ``SHOW``.
+    USE_COPY = "adbc.postgresql.use_copy"
 
-def connect(uri: str) -> adbc_driver_manager.AdbcDatabase:
+
+def connect(
+    uri: str,
+    db_kwargs: typing.Optional[typing.Dict[str, str]] = None,
+) -> adbc_driver_manager.AdbcDatabase:
     """Create a low level ADBC connection to PostgreSQL."""
-    return adbc_driver_manager.AdbcDatabase(driver=_driver_path(), uri=uri)
+    db_options = dict(db_kwargs or {})
+    db_options["driver"] = _driver_path()
+    db_options["uri"] = uri
+    return adbc_driver_manager.AdbcDatabase(**db_options)
 
 
 @functools.lru_cache

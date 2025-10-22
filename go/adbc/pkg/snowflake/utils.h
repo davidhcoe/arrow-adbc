@@ -135,6 +135,9 @@ AdbcStatusCode SnowflakeStatementGetParameterSchema(struct AdbcStatement* stmt,
                                                     struct AdbcError* err);
 AdbcStatusCode SnowflakeStatementNew(struct AdbcConnection* cnxn,
                                      struct AdbcStatement* stmt, struct AdbcError* err);
+AdbcStatusCode SnowflakeStatementNextResult(struct AdbcStatement*, struct ArrowSchema*,
+                                            struct ArrowArrayStream*, struct AdbcPartitions*,
+                                            int64_t*, struct AdbcError*);
 AdbcStatusCode SnowflakeStatementPrepare(struct AdbcStatement* stmt,
                                          struct AdbcError* err);
 AdbcStatusCode SnowflakeStatementRelease(struct AdbcStatement* stmt,
@@ -154,7 +157,8 @@ AdbcStatusCode SnowflakeStatementSetSubstraitPlan(struct AdbcStatement* stmt,
                                                   const uint8_t* plan, size_t length,
                                                   struct AdbcError* err);
 
-AdbcStatusCode SnowflakeDriverInit(int version, void* rawDriver, struct AdbcError* err);
+AdbcStatusCode AdbcDriverSnowflakeInit(int version, void* rawDriver,
+                                       struct AdbcError* err);
 
 static inline void SnowflakeerrRelease(struct AdbcError* error) {
   if (error->release) {

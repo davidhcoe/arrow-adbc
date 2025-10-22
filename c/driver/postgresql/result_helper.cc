@@ -19,6 +19,8 @@
 
 #include <charconv>
 #include <memory>
+#include <string>
+#include <vector>
 
 #define ADBC_FRAMEWORK_USE_FMT
 #include "driver/framework/status.h"
@@ -46,7 +48,7 @@ Status PqResultHelper::PrepareInternal(int n_params, const Oid* param_oids) cons
 Status PqResultHelper::Prepare() const { return PrepareInternal(0, nullptr); }
 
 Status PqResultHelper::Prepare(const std::vector<Oid>& param_oids) const {
-  return PrepareInternal(param_oids.size(), param_oids.data());
+  return PrepareInternal(static_cast<int>(param_oids.size()), param_oids.data());
 }
 
 Status PqResultHelper::DescribePrepared() {
@@ -90,8 +92,8 @@ Status PqResultHelper::Execute(const std::vector<std::string>& params,
     }
 
     ClearResult();
-    result_ = PQexecParams(conn_, query_.c_str(), param_values.size(), param_oids_ptr,
-                           param_values.data(), param_lengths.data(),
+    result_ = PQexecParams(conn_, query_.c_str(), static_cast<int>(param_values.size()),
+                           param_oids_ptr, param_values.data(), param_lengths.data(),
                            param_formats.data(), static_cast<int>(output_format_));
   }
 
@@ -167,11 +169,10 @@ Status PqResultHelper::ResolveOutputTypes(PostgresTypeResolver& type_resolver,
     const Oid pg_oid = PQftype(result_, i);
     PostgresType pg_type;
     if (type_resolver.Find(pg_oid, &pg_type, &na_error) != NANOARROW_OK) {
-      Status status =
-          Status::NotImplemented("[libpq] Column #", i + 1, " (\"", PQfname(result_, i),
-                                 "\") has unknown type code ", pg_oid);
-      ClearResult();
-      return status;
+      // We couldn't look up the OID.
+      // TODO(apache/arrow-adbc#1243): issue a warning (maybe reloading the
+      // connection will load the OIDs if it was a newly created type)
+      pg_type = PostgresType::Unnamed(pg_oid);
     }
 
     root_type.AppendChild(PQfname(result_, i), pg_type);

@@ -25,7 +25,7 @@ package main
 // won't be accessible to the driver manager
 
 // #cgo CFLAGS: -DADBC_EXPORTING
-// #cgo CXXFLAGS: -std=c++11 -DADBC_EXPORTING
+// #cgo CXXFLAGS: -std=c++17 -DADBC_EXPORTING
 // #include "../../drivermgr/arrow-adbc/adbc.h"
 // #include "utils.h"
 // #include <errno.h>
@@ -87,7 +87,15 @@ func setErr(err *C.struct_AdbcError, format string, vals ...interface{}) {
 		C.SnowflakeerrRelease(err)
 	}
 
-	msg := errPrefix + fmt.Sprintf(format, vals...)
+	var msg string
+	if strings.HasPrefix(format, errPrefix) {
+		// If the error message already starts with the prefix, we don't
+		// want to add it again.
+		msg = fmt.Sprintf(format, vals...)
+	} else {
+		// Otherwise, we prepend the prefix to the error message.
+		msg = errPrefix + fmt.Sprintf(format, vals...)
+	}
 	err.message = C.CString(msg)
 	err.release = (*[0]byte)(C.Snowflake_release_error)
 }
@@ -97,7 +105,27 @@ func setErrWithDetails(err *C.struct_AdbcError, adbcError adbc.Error) {
 		return
 	}
 
+	for i := range 5 {
+		err.sqlstate[i] = C.char(adbcError.SqlState[i])
+	}
+
 	if err.vendor_code != C.ADBC_ERROR_VENDOR_CODE_PRIVATE_DATA {
+		// Caller is not interested in `private_data` if `vendor_code` is not
+		// `ADBC_ERROR_VENDOR_CODE_PRIVATE_DATA` so let's use the field for
+		// `vendor_code` instead, but make sure it's not set to the value
+		// that would indicate `private_data` is set.
+		if adbcError.VendorCode != C.ADBC_ERROR_VENDOR_CODE_PRIVATE_DATA {
+			err.vendor_code = C.int(adbcError.VendorCode)
+		}
+		setErr(err, adbcError.Msg)
+		return
+	}
+
+	numDetails := len(adbcError.Details)
+	// If there are no details, but we have a `VendorCode`, let's override
+	// `vendor_code` and not populate `private_data` with the error details.
+	if numDetails == 0 && adbcError.VendorCode != 0 && adbcError.VendorCode != C.ADBC_ERROR_VENDOR_CODE_PRIVATE_DATA {
+		err.vendor_code = C.int(adbcError.VendorCode)
 		setErr(err, adbcError.Msg)
 		return
 	}
@@ -109,7 +137,6 @@ func setErrWithDetails(err *C.struct_AdbcError, adbcError adbc.Error) {
 	err.release = (*[0]byte)(C.SnowflakeReleaseErrWithDetails)
 	err.private_data = cErrPtr
 
-	numDetails := len(adbcError.Details)
 	if numDetails > 0 {
 		cErr.keys = (**C.cchar_t)(C.calloc(C.size_t(numDetails), C.size_t(unsafe.Sizeof((*C.cchar_t)(nil)))))
 		cErr.values = (**C.cuint8_t)(C.calloc(C.size_t(numDetails), C.size_t(unsafe.Sizeof((*C.cuint8_t)(nil)))))
@@ -366,7 +393,7 @@ func SnowflakeArrayStreamGetNext(stream *C.struct_ArrowArrayStream, array *C.str
 	}
 	cStream := getFromHandle[cArrayStream](stream.private_data)
 	if cStream.rdr.Next() {
-		cdata.ExportArrowRecordBatch(cStream.rdr.Record(), toCdataArray(array), nil)
+		cdata.ExportArrowRecordBatch(cStream.rdr.RecordBatch(), toCdataArray(array), nil)
 		return 0
 	}
 	array.release = nil
@@ -1666,6 +1693,10 @@ func SnowflakeStatementGetParameterSchema(stmt *C.struct_AdbcStatement, schema *
 	return C.ADBC_STATUS_OK
 }
 
+//export SnowflakeStatementNextResult
+func SnowflakeStatementNextResult(stmt *C.struct_AdbcStatement, schema *C.struct_ArrowSchema, stream *C.struct_ArrowArrayStream, partitions *C.struct_AdbcPartitions, affected *C.int64_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
+}
+
 //export SnowflakeStatementSetOption
 func SnowflakeStatementSetOption(stmt *C.struct_AdbcStatement, key, value *C.cchar_t, err *C.struct_AdbcError) (code C.AdbcStatusCode) {
 	defer func() {
@@ -1813,8 +1844,8 @@ func SnowflakeStatementExecutePartitions(stmt *C.struct_AdbcStatement, schema *C
 	return C.ADBC_STATUS_OK
 }
 
-//export SnowflakeDriverInit
-func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcError) C.AdbcStatusCode {
+//export AdbcDriverSnowflakeInit
+func AdbcDriverSnowflakeInit(version C.int, rawDriver *C.void, err *C.struct_AdbcError) C.AdbcStatusCode {
 	driver := (*C.struct_AdbcDriver)(unsafe.Pointer(rawDriver))
 
 	switch version {
@@ -1824,8 +1855,11 @@ func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcErr
 	case C.ADBC_VERSION_1_1_0:
 		sink := fromCArr[byte]((*byte)(unsafe.Pointer(driver)), C.ADBC_DRIVER_1_1_0_SIZE)
 		memory.Set(sink, 0)
+	case C.ADBC_VERSION_1_2_0:
+		sink := fromCArr[byte]((*byte)(unsafe.Pointer(driver)), C.ADBC_DRIVER_1_2_0_SIZE)
+		memory.Set(sink, 0)
 	default:
-		setErr(err, "Only version 1.0.0/1.1.0 supported, got %d", int(version))
+		setErr(err, "Only version 1.0.0/1.1.0/1.2.0 supported, got %d", int(version))
 		return C.ADBC_STATUS_NOT_IMPLEMENTED
 	}
 
@@ -1858,7 +1892,7 @@ func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcErr
 	driver.StatementGetParameterSchema = (*[0]byte)(C.SnowflakeStatementGetParameterSchema)
 	driver.StatementPrepare = (*[0]byte)(C.SnowflakeStatementPrepare)
 
-	if version == C.ADBC_VERSION_1_1_0 {
+	if version >= C.ADBC_VERSION_1_1_0 {
 		driver.ErrorGetDetailCount = (*[0]byte)(C.SnowflakeErrorGetDetailCount)
 		driver.ErrorGetDetail = (*[0]byte)(C.SnowflakeErrorGetDetail)
 		driver.ErrorFromArrayStream = (*[0]byte)(C.SnowflakeErrorFromArrayStream)
@@ -1891,6 +1925,10 @@ func SnowflakeDriverInit(version C.int, rawDriver *C.void, err *C.struct_AdbcErr
 		driver.StatementSetOptionBytes = (*[0]byte)(C.SnowflakeStatementSetOptionBytes)
 		driver.StatementSetOptionDouble = (*[0]byte)(C.SnowflakeStatementSetOptionDouble)
 		driver.StatementSetOptionInt = (*[0]byte)(C.SnowflakeStatementSetOptionInt)
+	}
+
+	if version >= C.ADBC_VERSION_1_2_0 {
+		driver.StatementNextResult = (*[0]byte)(C.SnowflakeStatementNextResult)
 	}
 
 	return C.ADBC_STATUS_OK
