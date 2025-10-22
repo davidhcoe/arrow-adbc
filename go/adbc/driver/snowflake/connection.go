@@ -191,7 +191,7 @@ func (c *connectionImpl) GetObjects(ctx context.Context, depth adbc.ObjectDepth,
 
 	// force empty result from SHOW TABLES if tableType list is not empty
 	// and does not contain TABLE or VIEW in the list.
-	// we need this because we should have non-null db_schema_tables when
+	// we need this because we should have non-null db_schema_tables whenfq
 	// depth is Tables, Columns or All.
 	var badTableType = "tabletypedoesnotexist"
 	if len(tableType) > 0 && depth >= adbc.ObjectDepthTables && !hasViews && !hasTables {

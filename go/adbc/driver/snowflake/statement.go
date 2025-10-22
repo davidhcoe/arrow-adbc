@@ -75,11 +75,18 @@ func (st *statement) Base() *driverbase.StatementImplBase {
 }
 
 // setQueryContext applies the query tag if present.
-func (st *statement) setQueryContext(ctx context.Context) context.Context {
+func (st *statement) setQueryContext(ctx context.Context) (context.Context, error) {
 	if st.queryTag != "" {
 		ctx = gosnowflake.WithQueryTag(ctx, st.queryTag)
 	}
-	return ctx
+	if st.statementCount != 1 {
+		var err error
+		ctx, err = gosnowflake.WithMultiStatement(ctx, st.statementCount)
+		if err != nil {
+			return ctx, err
+		}
+	}
+	return ctx, nil
 }
 
 // Close releases any relevant resources associated with this statement
@@ -469,7 +476,10 @@ func (st *statement) ExecuteQuery(ctx context.Context) (reader array.RecordReade
 		internal.EndSpan(span, err)
 	}()
 
-	ctx = st.setQueryContext(ctx)
+	ctx, err = st.setQueryContext(ctx)
+	if err != nil {
+		return
+	}
 
 	if st.targetTable != "" {
 		nRows, err = st.executeIngest(ctx)
@@ -491,13 +501,6 @@ func (st *statement) ExecuteQuery(ctx context.Context) (reader array.RecordReade
 	// concatenate RecordReaders which doesn't exist yet. let's put
 	// that off for now.
 	if st.streamBind != nil || st.bound != nil {
-		if st.statementCount != 1 {
-			return nil, -1, adbc.Error{
-				Msg:  "variable binding not supported with multi-statement queries",
-				Code: adbc.StatusInvalidState,
-			}
-		}
-
 		bind := snowflakeBindReader{
 			doQuery: func(params []driver.NamedValue) (array.RecordReader, error) {
 				var loader gosnowflake.ArrowStreamLoader
@@ -546,7 +549,11 @@ func (st *statement) ExecuteUpdate(ctx context.Context) (numRows int64, err erro
 		internal.EndSpan(span, err)
 	}()
 
-	ctx = st.setQueryContext(ctx)
+	ctx, err = st.setQueryContext(ctx)
+	if err != nil {
+		numRows = -1
+		return numRows, err
+	}
 
 	if st.targetTable != "" {
 		numRows, err = st.executeIngest(ctx)
@@ -618,7 +625,10 @@ func (st *statement) ExecuteSchema(ctx context.Context) (schema *arrow.Schema, e
 	ctx, span := internal.StartSpan(ctx, "statement.ExecuteSchema", st)
 	defer internal.EndSpan(span, err)
 
-	ctx = st.setQueryContext(ctx)
+	ctx, err = st.setQueryContext(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	if st.targetTable != "" {
 		err = adbc.Error{
