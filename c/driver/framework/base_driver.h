@@ -116,8 +116,9 @@ class Option {
                                              "': trailing data", value);
             }
             return parsed;
+          } else {
+            return status::InvalidArgument("Invalid integer value ", this->Format());
           }
-          return status::InvalidArgument("Invalid integer value ", this->Format());
         },
         value_);
   }
@@ -129,8 +130,9 @@ class Option {
           using T = std::decay_t<decltype(value)>;
           if constexpr (std::is_same_v<T, std::string>) {
             return value;
+          } else {
+            return status::InvalidArgument("Invalid string value ", this->Format());
           }
-          return status::InvalidArgument("Invalid string value ", this->Format());
         },
         value_);
   }
@@ -466,11 +468,22 @@ class Driver {
     }
 
     auto error_obj = reinterpret_cast<Status*>(error->private_data);
+    if (!error_obj) {
+      return 0;
+    }
     return error_obj->CDetailCount();
   }
 
   static AdbcErrorDetail CErrorGetDetail(const AdbcError* error, int index) {
+    if (error->vendor_code != ADBC_ERROR_VENDOR_CODE_PRIVATE_DATA) {
+      return {nullptr, nullptr, 0};
+    }
+
     auto error_obj = reinterpret_cast<Status*>(error->private_data);
+    if (!error_obj) {
+      return {nullptr, nullptr, 0};
+    }
+
     return error_obj->CDetail(index);
   }
 

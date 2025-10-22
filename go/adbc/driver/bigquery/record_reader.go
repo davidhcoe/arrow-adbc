@@ -18,25 +18,27 @@
 package bigquery
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"sync/atomic"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/apache/arrow-adbc/go/adbc"
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/arrow/ipc"
-	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/ipc"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"golang.org/x/sync/errgroup"
 )
 
 type reader struct {
 	refCount   int64
 	schema     *arrow.Schema
-	chs        []chan arrow.Record
+	chs        []chan arrow.RecordBatch
 	curChIndex int
-	rec        arrow.Record
+	rec        arrow.RecordBatch
 	err        error
 
 	cancelFn context.CancelFunc
@@ -66,9 +68,28 @@ func runQuery(ctx context.Context, query *bigquery.Query, executeUpdate bool) (b
 	if err != nil {
 		return nil, -1, err
 	}
-	arrowIterator, err := iter.ArrowIterator()
-	if err != nil {
-		return nil, -1, err
+
+	var arrowIterator bigquery.ArrowIterator
+	// If there is no schema in the row iterator, then arrow
+	// iterator should be empty (#2173)
+	if iter.TotalRows > 0 {
+		// !IsAccelerated() -> failed to get Arrow stream -> we are
+		// probably lacking permissions.  readSessionUser may sound
+		// unrelated but creating a "read session" is the first step
+		// of using the Storage API.  Note that Google swallows the
+		// real error, so this is the best we can do.
+		// https://cloud.google.com/bigquery/docs/reference/storage#create_a_session
+		if !iter.IsAccelerated() {
+			return nil, -1, adbc.Error{
+				Code: adbc.StatusUnauthorized,
+				Msg:  "[bigquery] Arrow reader requires roles/bigquery.readSessionUser, see https://github.com/apache/arrow-adbc/issues/3282",
+			}
+		}
+		if arrowIterator, err = iter.ArrowIterator(); err != nil {
+			return nil, -1, err
+		}
+	} else {
+		arrowIterator = emptyArrowIterator{iter.Schema}
 	}
 	totalRows := int64(iter.TotalRows)
 	return arrowIterator, totalRows, nil
@@ -79,7 +100,7 @@ func ipcReaderFromArrowIterator(arrowIterator bigquery.ArrowIterator, alloc memo
 	return ipc.NewReader(arrowItReader, ipc.WithAllocator(alloc))
 }
 
-func getQueryParameter(values arrow.Record, row int, parameterMode string) ([]bigquery.QueryParameter, error) {
+func getQueryParameter(values arrow.RecordBatch, row int, parameterMode string) ([]bigquery.QueryParameter, error) {
 	parameters := make([]bigquery.QueryParameter, values.NumCols())
 	includeName := parameterMode == OptionValueQueryParameterModeNamed
 	schema := values.Schema()
@@ -106,9 +127,9 @@ func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allo
 		return nil, -1, err
 	}
 
-	chs := make([]chan arrow.Record, 1)
+	chs := make([]chan arrow.RecordBatch, 1)
 	ctx, cancelFn := context.WithCancel(ctx)
-	ch := make(chan arrow.Record, resultRecordBufferSize)
+	ch := make(chan arrow.RecordBatch, resultRecordBufferSize)
 	chs[0] = ch
 
 	defer func() {
@@ -130,7 +151,7 @@ func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allo
 	go func() {
 		defer rdr.Release()
 		for rdr.Next() && ctx.Err() == nil {
-			rec := rdr.Record()
+			rec := rdr.RecordBatch()
 			rec.Retain()
 			ch <- rec
 		}
@@ -141,7 +162,7 @@ func runPlainQuery(ctx context.Context, query *bigquery.Query, alloc memory.Allo
 	return bigqueryRdr, totalRows, nil
 }
 
-func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, query *bigquery.Query, rec arrow.Record, ch chan arrow.Record, parameterMode string, alloc memory.Allocator, rdrSchema func(schema *arrow.Schema)) (int64, error) {
+func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, query *bigquery.Query, rec arrow.RecordBatch, ch chan arrow.RecordBatch, parameterMode string, alloc memory.Allocator, rdrSchema func(schema *arrow.Schema)) (int64, error) {
 	totalRows := int64(-1)
 	for i := 0; i < int(rec.NumRows()); i++ {
 		parameters, err := getQueryParameter(rec, i, parameterMode)
@@ -149,7 +170,7 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 			return -1, err
 		}
 		if parameters != nil {
-			query.QueryConfig.Parameters = parameters
+			query.Parameters = parameters
 		}
 
 		arrowIterator, rows, err := runQuery(ctx, query, false)
@@ -165,7 +186,7 @@ func queryRecordWithSchemaCallback(ctx context.Context, group *errgroup.Group, q
 		group.Go(func() error {
 			defer rdr.Release()
 			for rdr.Next() && ctx.Err() == nil {
-				rec := rdr.Record()
+				rec := rdr.RecordBatch()
 				rec.Retain()
 				ch <- rec
 			}
@@ -187,9 +208,9 @@ func newRecordReader(ctx context.Context, query *bigquery.Query, boundParameters
 	// BigQuery can expose result sets as multiple streams when using certain APIs
 	// for now lets keep this and set the number of channels to 1
 	// when we need to adapt to multiple streams we can change the value here
-	chs := make([]chan arrow.Record, 1)
+	chs := make([]chan arrow.RecordBatch, 1)
 
-	ch := make(chan arrow.Record, resultRecordBufferSize)
+	ch := make(chan arrow.RecordBatch, resultRecordBufferSize)
 	group, ctx := errgroup.WithContext(ctx)
 	group.SetLimit(prefetchConcurrency)
 	ctx, cancelFn := context.WithCancel(ctx)
@@ -211,7 +232,7 @@ func newRecordReader(ctx context.Context, query *bigquery.Query, boundParameters
 	}
 
 	for boundParameters.Next() {
-		rec := boundParameters.Record()
+		rec := boundParameters.RecordBatch()
 		// Each call to Record() on the record reader is allowed to release the previous record
 		// and since we're doing this sequentially
 		// we don't need to call rec.Retain() here and call call rec.Release() in queryRecordWithSchemaCallback
@@ -273,6 +294,38 @@ func (r *reader) Schema() *arrow.Schema {
 	return r.schema
 }
 
-func (r *reader) Record() arrow.Record {
+func (r *reader) Record() arrow.RecordBatch {
 	return r.rec
 }
+
+func (r *reader) RecordBatch() arrow.RecordBatch {
+	return r.rec
+}
+
+type emptyArrowIterator struct {
+	schema bigquery.Schema
+}
+
+func (e emptyArrowIterator) Next() (*bigquery.ArrowRecordBatch, error) {
+	return nil, errors.New("Next should never be invoked on an empty iterator")
+}
+
+func (e emptyArrowIterator) Schema() bigquery.Schema {
+	return e.schema
+}
+
+func (e emptyArrowIterator) SerializedArrowSchema() []byte {
+	emptySchema := arrow.NewSchema([]arrow.Field{}, nil)
+
+	var buf bytes.Buffer
+	writer := ipc.NewWriter(&buf, ipc.WithSchema(emptySchema))
+
+	err := writer.Close()
+	if err != nil {
+		log.Fatalf("Error serializing an empty schema: %v", err)
+	}
+
+	return buf.Bytes()
+}
+
+var _ array.RecordReader = (*reader)(nil)

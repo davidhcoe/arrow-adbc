@@ -15,8 +15,10 @@
 * limitations under the License.
 */
 
-using System.Collections.Generic;
+using System.Data;
+using System.Runtime.InteropServices;
 using Apache.Arrow.Adbc.Client;
+using Apache.Arrow.Types;
 using Xunit;
 
 namespace Apache.Arrow.Adbc.Tests.Client
@@ -115,6 +117,42 @@ namespace Apache.Arrow.Adbc.Tests.Client
             {
                 connection.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
             });
+        }
+
+        [Fact]
+        public void BindParameters()
+        {
+            using var connection = _duckDb.CreateConnection("bindparameters.db", null);
+            connection.Open();
+            var command = connection.CreateCommand();
+
+            command.CommandText = "select ?, ?";
+            command.Prepare();
+            Assert.Equal(2, command.Parameters.Count);
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                Assert.Equal(string.Empty, command.Parameters[0].ParameterName);
+            }
+            else
+            {
+                Assert.Equal("0", command.Parameters[0].ParameterName);
+            }
+            Assert.Equal(DbType.Object, command.Parameters[0].DbType);
+            Assert.Equal("1", command.Parameters[1].ParameterName);
+            Assert.Equal(DbType.Object, command.Parameters[1].DbType);
+
+            command.Parameters[0].DbType = DbType.Int32;
+            command.Parameters[0].Value = 1;
+            command.Parameters[1].DbType = DbType.String;
+            command.Parameters[1].Value = "foo";
+
+            using var reader = command.ExecuteReader();
+            long count = 0;
+            while (reader.Read())
+            {
+                count++;
+            }
+            Assert.Equal(1, count);
         }
 
         private static long GetResultCount(AdbcCommand command, string query)

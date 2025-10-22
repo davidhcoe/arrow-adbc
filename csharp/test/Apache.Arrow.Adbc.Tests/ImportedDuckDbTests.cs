@@ -17,6 +17,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Apache.Arrow.Types;
 using Xunit;
@@ -195,6 +196,52 @@ namespace Apache.Arrow.Adbc.Tests
             statement2.ExecuteUpdate();
 
             Assert.Equal(5, GetResultCount(statement2, "SELECT * from ingested"));
+
+            // TODO: Pass a schema once the DuckDB "quoting identifiers" bug has been fixed
+            using var statement3 = connection.BulkIngest(null, null, "ingested", BulkIngestMode.Append, isTemporary: false);
+
+            recordBatch = new RecordBatch(schema, [
+                new Int32Array.Builder().AppendRange([6]).Build(),
+                new StringArray.Builder().AppendRange(["antidisestablishmentarianism"]).Build()
+                ], 1);
+            statement3.Bind(recordBatch, schema);
+            statement3.ExecuteUpdate();
+
+            Assert.Equal(6, GetResultCount(statement3, "SELECT * from main.ingested"));
+        }
+
+        [Fact]
+        public void PrepareAndBind()
+        {
+            using var database = _duckDb.OpenDatabase("bind.db");
+            using var connection = database.Connect(null);
+            using var statement = connection.CreateStatement();
+
+            statement.SqlQuery = "select ?, ?";
+            statement.Prepare();
+            var schema = statement.GetParameterSchema();
+            Assert.Equal(2, schema.FieldsList.Count);
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                Assert.Equal(string.Empty, schema.FieldsList[0].Name);
+            }
+            else
+            {
+                Assert.Equal("0", schema.FieldsList[0].Name);
+            }
+            Assert.Equal(ArrowTypeId.Null, schema.FieldsList[0].DataType.TypeId);
+            Assert.Equal("1", schema.FieldsList[1].Name);
+            Assert.Equal(ArrowTypeId.Null, schema.FieldsList[1].DataType.TypeId);
+
+            schema = new Schema([new Field("0", Int32Type.Default, false), new Field("1", StringType.Default, false)], null);
+            RecordBatch recordBatch = new RecordBatch(schema, [
+                new Int32Array.Builder().AppendRange([1]).Build(),
+                new StringArray.Builder().AppendRange(["foo"]).Build()
+                ], 1);
+            statement.Bind(recordBatch, schema);
+
+            var results = statement.ExecuteQuery();
+            Assert.Equal(1, GetResultCount(results));
         }
 
         [Fact]
@@ -243,6 +290,11 @@ namespace Apache.Arrow.Adbc.Tests
         {
             statement.SqlQuery = query;
             var results = statement.ExecuteQuery();
+            return GetResultCount(results);
+        }
+
+        private static long GetResultCount(QueryResult results)
+        {
             long count = 0;
             using (var stream = results.Stream ?? throw new InvalidOperationException("no results found"))
             {

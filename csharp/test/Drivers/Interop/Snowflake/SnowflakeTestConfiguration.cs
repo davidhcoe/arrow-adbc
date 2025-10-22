@@ -73,10 +73,16 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
         public string Warehouse { get; set; } = string.Empty;
 
         /// <summary>
-        /// The Snowflake use high precision
+        /// The Snowflake setting to use high precision
         /// </summary>
         [JsonPropertyName("useHighPrecision")]
         public bool UseHighPrecision { get; set; } = true;
+
+        /// <summary>
+        /// The Snowflake setting indicate the maximum timestamp precision.
+        /// </summary>
+        [JsonPropertyName("maxTimestampPrecision")]
+        public string MaxTimestampPrecision { get; set; } = "nanoseconds";
 
         /// <summary>
         /// The snowflake Authentication
@@ -84,6 +90,11 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
         [JsonPropertyName("authentication")]
         public SnowflakeAuthentication Authentication { get; set; } = new SnowflakeAuthentication();
 
+        /// <summary>
+        /// The snowflake Authentication
+        /// </summary>
+        [JsonPropertyName("roleInfo")]
+        public RoleInfo? RoleInfo { get; set; }
     }
 
     public class SnowflakeAuthentication
@@ -133,5 +144,14 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Interop.Snowflake
 
         [JsonPropertyName("password")]
         public string Password { get; set; } = string.Empty;
+    }
+
+    public class RoleInfo
+    {
+        [JsonPropertyName("defaultRole")]
+        public string DefaultRole { get; set; } = string.Empty;
+
+        [JsonPropertyName("newRole")]
+        public string NewRole { get; set; } = string.Empty;
     }
 }

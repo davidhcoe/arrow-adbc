@@ -22,8 +22,8 @@ import (
 	"sync/atomic"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 type readerIter interface {
@@ -99,9 +99,14 @@ func (r *concatReader) Next() bool {
 	}
 	return true
 }
-func (r *concatReader) Record() arrow.Record {
-	return r.currentReader.Record()
+func (r *concatReader) Record() arrow.RecordBatch {
+	return r.currentReader.RecordBatch()
+}
+func (r *concatReader) RecordBatch() arrow.RecordBatch {
+	return r.currentReader.RecordBatch()
 }
 func (r *concatReader) Err() error {
 	return r.err
 }
+
+var _ array.RecordReader = (*concatReader)(nil)

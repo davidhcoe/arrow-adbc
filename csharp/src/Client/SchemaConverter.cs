@@ -16,9 +16,11 @@
 */
 
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 using System.Data.SqlTypes;
+using Apache.Arrow.Scalars;
 using Apache.Arrow.Types;
 
 namespace Apache.Arrow.Adbc.Client
@@ -32,7 +34,7 @@ namespace Apache.Arrow.Adbc.Client
         /// <param name="schema">The Arrow schema</param>
         /// <param name="adbcStatement">The AdbcStatement to use</param>
         /// <exception cref="ArgumentNullException"></exception>
-        public static DataTable ConvertArrowSchema(Schema schema, AdbcStatement adbcStatement, DecimalBehavior decimalBehavior)
+        public static DataTable ConvertArrowSchema(Schema schema, AdbcStatement adbcStatement, DecimalBehavior decimalBehavior, StructBehavior structBehavior)
         {
             if (schema == null)
                 throw new ArgumentNullException(nameof(schema));
@@ -59,8 +61,8 @@ namespace Apache.Arrow.Adbc.Client
                 row[SchemaTableColumn.ColumnName] = f.Name;
                 row[SchemaTableColumn.ColumnOrdinal] = columnOrdinal;
                 row[SchemaTableColumn.AllowDBNull] = f.IsNullable;
-                row[SchemaTableColumn.ProviderType] = f.DataType;
-                Type t = ConvertArrowType(f, decimalBehavior);
+                row[SchemaTableColumn.ProviderType] = SchemaConverter.GetArrowTypeBasedOnRequestedBehavior(f.DataType, structBehavior);
+                Type t = ConvertArrowType(f, decimalBehavior, structBehavior);
 
                 row[SchemaTableColumn.DataType] = t;
 
@@ -81,6 +83,16 @@ namespace Apache.Arrow.Adbc.Client
                         if (!string.IsNullOrEmpty(scaleValue))
                             row[SchemaTableColumn.NumericScale] = Convert.ToInt32(scaleValue);
                     }
+                }
+                else if (f.DataType is Decimal32Type decimal32Type)
+                {
+                    row[SchemaTableColumn.NumericPrecision] = decimal32Type.Precision;
+                    row[SchemaTableColumn.NumericScale] = decimal32Type.Scale;
+                }
+                else if (f.DataType is Decimal64Type decimal64Type)
+                {
+                    row[SchemaTableColumn.NumericPrecision] = decimal64Type.Precision;
+                    row[SchemaTableColumn.NumericScale] = decimal64Type.Scale;
                 }
                 else if (f.DataType is Decimal128Type decimal128Type)
                 {
@@ -110,7 +122,7 @@ namespace Apache.Arrow.Adbc.Client
         /// </summary>
         /// <param name="f"></param>
         /// <returns></returns>
-        public static Type ConvertArrowType(Field f, DecimalBehavior decimalBehavior)
+        public static Type ConvertArrowType(Field f, DecimalBehavior decimalBehavior, StructBehavior structBehavior)
         {
             switch (f.DataType.TypeId)
             {
@@ -119,11 +131,11 @@ namespace Apache.Arrow.Adbc.Client
                     IArrowType valueType = list.ValueDataType;
                     return GetArrowArrayType(valueType);
                 default:
-                    return GetArrowType(f, decimalBehavior);
+                    return GetArrowType(f, decimalBehavior, structBehavior);
             }
         }
 
-        public static Type GetArrowType(Field f, DecimalBehavior decimalBehavior)
+        public static Type GetArrowType(Field f, DecimalBehavior decimalBehavior, StructBehavior structBehavior)
         {
             switch (f.DataType.TypeId)
             {
@@ -182,13 +194,25 @@ namespace Apache.Arrow.Adbc.Client
                     return typeof(string);
 
                 case ArrowTypeId.Struct:
-                    goto default;
+                    return structBehavior == StructBehavior.JsonString ? typeof(string) : typeof(Dictionary<string, object?>);
 
                 case ArrowTypeId.Timestamp:
                     return typeof(DateTimeOffset);
 
                 case ArrowTypeId.Null:
                     return typeof(DBNull);
+
+                case ArrowTypeId.Interval:
+                    switch (((IntervalType)f.DataType).Unit)
+                    {
+                        case IntervalUnit.MonthDayNanosecond:
+                            return typeof(MonthDayNanosecondInterval);
+                        case IntervalUnit.DayTime:
+                            return typeof(DayTimeInterval);
+                        case IntervalUnit.YearMonth:
+                            return typeof(YearMonthInterval);
+                    }
+                    goto default;
 
                 default:
                     return f.DataType.GetType();
@@ -204,7 +228,7 @@ namespace Apache.Arrow.Adbc.Client
                 case ArrowTypeId.Boolean:
                     return typeof(BooleanArray);
                 case ArrowTypeId.Decimal128:
-                        return typeof(Decimal128Array);
+                    return typeof(Decimal128Array);
                 case ArrowTypeId.Decimal256:
                     return typeof(Decimal256Array);
                 case ArrowTypeId.Time32:
@@ -245,6 +269,19 @@ namespace Apache.Arrow.Adbc.Client
             }
 
             throw new InvalidCastException($"Cannot determine the array type for {dataType.Name}");
+        }
+
+        /// <summary>
+        /// Get the IArrowType based on the input IArrowType and the desired <see cref="StructBehavior"/>.
+        /// If it's a StructType and the desired behavior is a JsonString then this returns StringType.
+        /// Otherwise, it returns the input IArrowType.
+        /// </summary>
+        /// <param name="defaultType">The default IArrowType to return.</param>
+        /// <param name="structBehavior">Desired behavior if the IArrowType is a StructType.</param>
+        /// <returns></returns>
+        public static IArrowType GetArrowTypeBasedOnRequestedBehavior(IArrowType defaultType, StructBehavior structBehavior)
+        {
+            return defaultType.TypeId == ArrowTypeId.Struct && structBehavior == StructBehavior.JsonString ? StringType.Default : defaultType;
         }
     }
 }

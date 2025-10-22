@@ -171,10 +171,10 @@ Build source and binaries and submit them
 
     # Upload the Java artifacts
     #
-    # Note that you need to press the "Close" button manually by Web interface
-    # after you complete the script:
+    # Note that you need to press the "Close" button manually in the Web
+    # interface after you complete the script:
     #   https://repository.apache.org/#stagingRepositories
-    dev/release/04-java-upload.sh <arrow-dir> <rc-number>
+    dev/release/04-java-upload.sh <rc-number>
 
     # Sign and upload the deb/rpm packages and APT/Yum repositories
     #
@@ -218,7 +218,7 @@ How to Verify Release Candidates
    - GLib and gobject-introspection with headers
       - pkg-config or cmake must be able to find libarrow-glib.so
       - GI_TYPELIB_PATH should be set to the path to the girepository-1.0 directory
-   - Java JRE and JDK (Java 8+)
+   - Java JRE and JDK (Java 11+)
       - the javadoc command must also be accessible
    - Go
    - CMake, ninja-build, libpq (with headers), SQLite (with headers)
@@ -374,8 +374,8 @@ Be sure to go through on the following checklist:
    You must be one of owners of the package.  If you aren't an owner yet, an
    existing owner can add you at https://nuget.org.
 
-   You will need to [create an API
-   key](https://learn.microsoft.com/en-us/nuget/nuget-org/publish-a-package#create-an-api-key).
+   You will need to `create an API
+   key <https://learn.microsoft.com/en-us/nuget/nuget-org/publish-a-package#create-an-api-key>`.
 
    An owner can upload:
 
@@ -393,7 +393,7 @@ Be sure to go through on the following checklist:
    You must be one of owners of the package.  If you aren't an owner yet, an
    existing owner can add you at https://crates.io.
 
-   You will need to [create an API token](https://crates.io/settings/tokens).
+   You will need to `create an API token <https://crates.io/settings/tokens>`.
 
    An owner can upload:
 
@@ -417,9 +417,17 @@ Be sure to go through on the following checklist:
    :class-title: sd-fs-5
    :class-container: sd-shadow-md
 
-   Write a release announcement (see `example <https://lists.apache.org/thread/6rkjwvyjjfodrxffllh66pcqnp729n3k>`_) and send to announce@apache.org and dev@arrow.apache.org.
+   Write a release announcement and send to announce@apache.org and
+   dev@arrow.apache.org.
 
-   The announcement to announce@apache.org must be sent from your apache.org e-mail address to be accepted.
+   The announcement to announce@apache.org must be sent from your apache.org
+   e-mail address to be accepted.
+
+   Template:
+
+   .. code-block:: Bash
+
+      dev/release/post-09-announce.sh
 
 .. dropdown:: Remove old artifacts
    :class-title: sd-fs-5
@@ -429,7 +437,7 @@ Be sure to go through on the following checklist:
 
    .. code-block:: Bash
 
-      dev/release/post-09-remove-old-artifacts.sh
+      dev/release/post-10-remove-old-artifacts.sh
 
 .. dropdown:: Bump versions
    :class-title: sd-fs-5
@@ -439,8 +447,8 @@ Be sure to go through on the following checklist:
 
    .. code-block:: Bash
 
-      # dev/release/post-10-bump-versions.sh ../arrow
-      dev/release/post-10-bump-versions.sh <arrow-dir>
+      # dev/release/post-11-bump-versions.sh ../arrow
+      dev/release/post-11-bump-versions.sh <arrow-dir>
 
 .. dropdown:: Publish release blog post
    :class-title: sd-fs-5
@@ -452,7 +460,7 @@ Be sure to go through on the following checklist:
 
    .. code-block:: Bash
 
-      # dev/release/post-11-website.sh ../arrow-site
-      dev/release/post-11-website.sh <arrow-site-dir>
+      # dev/release/post-12-website.sh ../arrow-site
+      dev/release/post-12-website.sh <arrow-site-dir>
 
 .. _nightly-website.yml: https://github.com/apache/arrow-adbc/actions/workflows/nightly-website.yml

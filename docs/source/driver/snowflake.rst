@@ -19,55 +19,20 @@
 Snowflake Driver
 ================
 
-**Available for:** C/C++, GLib/Ruby, Go, Python, R
+.. adbc_driver_status:: ../../../c/driver/snowflake/README.md
 
 The Snowflake Driver provides access to Snowflake Database Warehouses.
 
 Installation
 ============
 
-.. tab-set::
-
-   .. tab-item:: C/C++
-      :sync: cpp
-
-      For conda-forge users:
-
-      .. code-block:: shell
-
-         mamba install libadbc-driver-snowflake
-
-   .. tab-item:: Go
-      :sync: go
-
-      .. code-block:: shell
-
-        go get github.com/apache/arrow-adbc/go/adbc/driver/snowflake
-
-   .. tab-item:: Python
-      :sync: python
-
-      .. code-block:: shell
-
-         # For conda-forge
-         mamba install adbc-driver-snowflake
-
-         # For pip
-         pip install adbc_driver_snowflake
-
-   .. tab-item:: R
-      :sync: r
-
-      .. code-block:: shell
-
-         # install.packages("pak")
-         pak::pak("apache/arrow-adbc/r/adbcsnowflake")
+.. adbc_driver_installation:: ../../../c/driver/snowflake/README.md
 
 Usage
 =====
 
 To connect to a Snowflake database you can supply the "uri" parameter when
-constructing the :cpp::class:`AdbcDatabase`.
+constructing the :c:struct:`AdbcDatabase`.
 
 .. tab-set::
 
@@ -146,6 +111,14 @@ The Snowflake URI should be of one of the following formats:
 - ``user[:password]@host:port/database/schema?account=user_account[&param1=value1&paramN=valueN]``
 - ``host:port/database/schema?account=user_account[&param1=value1&paramN=valueN]``
 
+Refer to the official
+`Snowflake documentation <https://docs.snowflake.com/en/user-guide/gen-conn-config>`_
+to obtain a valid connection URI or to the
+`Snowflake Go driver documentation <https://pkg.go.dev/github.com/snowflakedb/gosnowflake#hdr-Connection_String>`_
+to build a URI manually.
+Notice that from the Snowflake context, arrow-adbc is considered the Snowflake Go driver since
+that implementation is used under the hood.
+
 Alternately, instead of providing a full URI, the configuration can
 be entirely supplied using the other available options or some combination
 of the URI and other options. If a URI is provided, it will be parsed first
@@ -163,7 +136,7 @@ Authentication
 Snowflake requires some form of authentication to be enabled. By default
 it will attempt to use Username/Password authentication. The username and
 password can be provided in the URI or via the ``username`` and ``password``
-options to the :cpp:class:`AdbcDatabase`.
+options to the :c:struct:`AdbcDatabase`.
 
 Alternately, other types of authentication can be specified and customized.
 See "Client Options" below for details on all the options.
@@ -175,7 +148,7 @@ Snowflake supports `single sign-on
 <https://docs.snowflake.com/en/user-guide/admin-security-fed-auth-overview>`_.
 If your account has been configured with SSO, it can be used with the
 Snowflake driver by setting the following options when constructing the
-:cpp:class:`AdbcDatabase`:
+:c:struct:`AdbcDatabase`:
 
 - ``adbc.snowflake.sql.account``: your Snowflake account.  (For example, if
   you log in to ``https://foobar.snowflakecomputing.com``, then your account
@@ -283,7 +256,7 @@ The following informal benchmark demonstrates expected performance using default
       Scale Factor 10 (60M Rows): 45s
 
 The default settings for ingestion should be well balanced for many real-world configurations. If required, performance
-and resource usage may be tuned with the following options on the :cpp:class:`AdbcStatement` object:
+and resource usage may be tuned with the following options on the :c:struct:`AdbcStatement` object:
 
 ``adbc.snowflake.statement.ingest_writer_concurrency``
     Number of Parquet files to write in parallel. Default attempts to maximize workers based on logical cores detected,
@@ -291,15 +264,15 @@ and resource usage may be tuned with the following options on the :cpp:class:`Ad
 
 ``adbc.snowflake.statement.ingest_upload_concurrency``
     Number of Parquet files to upload in parallel. Greater concurrency can smooth out TCP congestion and help make
-    use of available network bandwith, but will increase memory utilization. Default is 8. If set to 0, default value is used.
+    use of available network bandwidth, but will increase memory utilization. Default is 8. If set to 0, default value is used.
     Cannot be negative.
 
 ``adbc.snowflake.statement.ingest_copy_concurrency``
     Maximum number of COPY operations to run concurrently. Bulk ingestion performance is optimized by executing COPY
     queries as files are still being uploaded. Snowflake COPY speed scales with warehouse size, so smaller warehouses
     may benefit from setting this value higher to ensure long-running COPY queries do not block newly uploaded files
-    from being loaded. Default is 4. If set to 0, only a single COPY query will be executed as part of ingestion,
-    once all files have finished uploading. Cannot be negative.
+    from being loaded. Default is 4. If set to 0, there will be no limitation and instead a new COPY INTO query will
+    be executed for each file that is uploaded. Cannot be negative.
 
 ``adbc.snowflake.statement.ingest_target_file_size``
     Approximate size of Parquet files written during ingestion. Actual size will be slightly larger, depending on
@@ -319,7 +292,7 @@ returned to the client in the order of the endpoints.
 
 To manage the performance of result fetching there are two options to control
 buffering and concurrency behavior. These options are only available to be set
-on the :cpp:class:`AdbcStatement` object:
+on the :c:struct:`AdbcStatement` object:
 
 ``adbc.rpc.result_queue_size``
     The number of batches to queue in the record reader. Defaults to 200.
@@ -339,7 +312,7 @@ Client Options
 --------------
 
 The options used for creating a Snowflake Database connection can be customized.
-These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config>`.
+These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/github.com/snowflakedb/gosnowflake#Config>`_.
 
 ``adbc.snowflake.sql.db``
     The database this session should default to using.
@@ -378,6 +351,8 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
     - ``auth_okta``: Use a native Okta URL to perform SSO authentication using Okta
     - ``auth_jwt``: Use a provided JWT to perform authentication.
     - ``auth_mfa``: Use a username and password with MFA.
+    - ``auth_pat``: Use a programmatic access token for authentication.
+    - ``auth_wif``: Use Workload Identity Federation for authentication.
 
 ``adbc.snowflake.sql.client_option.auth_token``
     If using OAuth or another form of authentication, this option is how you can
@@ -446,6 +421,10 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
     disabled by setting this to ``true``. Value should be either ``true``
     or ``false``.
 
+``adbc.snowflake.sql.client_option.config_file``
+    Specifies the location of the client configuration JSON file. See the
+    [Snowflake Go docs](https://github.com/snowflakedb/gosnowflake/blob/a26ac8a1b9a0dda854ac5db9c2c145f79d5ac4c0/doc.go#L130) for more details.
+
 ``adbc.snowflake.sql.client_option.tracing``
     Set the logging level
 
@@ -457,6 +436,10 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
     When ``true``, the ID token is cached in the credential manager. Defaults
     to ``true`` on Windows/OSX, ``false`` on Linux.
 
+``adbc.snowflake.sql.client_option.identity_provider``
+    When using ``auth_wif`` for workload identity federation authentication, this
+    must be set to the appropriate identity provider.
+
 ``adbc.snowflake.sql.client_option.use_high_precision``
     When ``true``, fixed-point snowflake columns with the type ``NUMBER``
     will be returned as ``Decimal128`` type Arrow columns using the precision
@@ -465,11 +448,19 @@ These options map 1:1 with the Snowflake `Config object <https://pkg.go.dev/gith
     non-zero scaled columns will be returned as ``Float64`` typed Arrow columns.
     The default is ``true``.
 
+``adbc.snowflake.sql.client_option.max_timestamp_precision``
+    Controls the behavior of Timestamp values with Nanosecond precision. Native Go behavior
+    is these values will overflow to an unpredictable value when the year is before year 1677 or after 2262.
+    This option can control the behavior of the `timestamp_ltz`, `timestamp_ntz`, and `timestamp_tz` types.
+    Valid values are
+    - ``nanoseconds``: Use default behavior for nanoseconds.
+    - ``nanoseconds_error_on_overflow``: Throws an error when the value will overflow to enforce integrity of the data.
+    - ``microseconds``: Limits the max Timestamp precision to microseconds, which is safe for all values.
 
 Metadata
 --------
 
-When calling :cpp:func:`AdbcConnectionGetTableSchema`, the returned Arrow Schema
+When calling :c:func:`AdbcConnectionGetTableSchema`, the returned Arrow Schema
 will contain metadata on each field:
 
 ``DATA_TYPE``

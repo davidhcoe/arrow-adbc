@@ -40,8 +40,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
@@ -250,6 +250,19 @@ const (
 	OptionKeyURI                      = "uri"
 	OptionKeyUsername                 = "username"
 	OptionKeyPassword                 = "password"
+	// EXPERIMENTAL. Sets/Gets the trace parent on OpenTelemetry traces
+	OptionKeyTelemetryTraceParent = "adbc.telemetry.trace_parent"
+)
+
+// EXPERIMENTAL. Traces Telemetry exporter option type
+type OptionTelemetryExporter string
+
+// EXPERIMENTAL. Traces Telemetry exporter options
+const (
+	TelemetryExporterNone     OptionTelemetryExporter = "none"
+	TelemetryExporterOtlp     OptionTelemetryExporter = "otlp"
+	TelemetryExporterConsole  OptionTelemetryExporter = "console"
+	TelemetryExporterAdbcFile OptionTelemetryExporter = "adbcfile"
 )
 
 type OptionIsolationLevel string
@@ -310,20 +323,19 @@ const (
 )
 
 // Driver is the entry point for the interface. It is similar to
-// database/sql.Driver taking a map of keys and values as options
-// to initialize a Connection to the database. Any common connection
+// [database/sql.Driver] taking a map of keys and values as options
+// to initialize a [Connection] to the database. Any common connection
 // state can live in the Driver itself, for example an in-memory database
 // can place ownership of the actual database in this driver.
 //
 // Any connection specific options should be set using SetOptions before
 // calling Open.
 //
-// The provided context.Context is for dialing purposes only
-// (see net.DialContext) and should not be stored or used for other purposes.
+// The provided [context.Context] is for dialing purposes only.
 // A default timeout should still be used when dialing as a connection
 // pool may call Connect asynchronously to any query.
 //
-// A driver can also optionally implement io.Closer if there is a need
+// A driver can also optionally implement [io.Closer] if there is a need
 // or desire for it.
 type Driver interface {
 	NewDatabase(opts map[string]string) (Database, error)
@@ -632,7 +644,7 @@ type Statement interface {
 	SetSqlQuery(query string) error
 
 	// ExecuteQuery executes the current query or prepared statement
-	// and returnes a RecordReader for the results along with the number
+	// and returns a RecordReader for the results along with the number
 	// of rows affected if known, otherwise it will be -1.
 	//
 	// This invalidates any prior result sets on this statement.
@@ -666,7 +678,7 @@ type Statement interface {
 	// The driver will call release on the passed in Record when it is done,
 	// but it may not do this until the statement is closed or another
 	// record is bound.
-	Bind(ctx context.Context, values arrow.Record) error
+	Bind(ctx context.Context, values arrow.RecordBatch) error
 
 	// BindStream uses a record batch stream to bind parameters for this
 	// query. This can be used for bulk inserts or prepared statements.

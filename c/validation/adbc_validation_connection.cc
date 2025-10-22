@@ -17,7 +17,11 @@
 
 #include "adbc_validation.h"
 
+#include <algorithm>
 #include <cstring>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <arrow-adbc/adbc.h>
 #include <gmock/gmock.h>
@@ -425,10 +429,10 @@ void CheckGetObjectsSchema(struct ArrowSchema* schema) {
                              {"constraint_column_names", NANOARROW_TYPE_LIST, NOT_NULL},
                              {"constraint_column_usage", NANOARROW_TYPE_LIST, NULLABLE},
                          }));
-  ASSERT_NO_FATAL_FAILURE(CompareSchema(
-      constraint_schema->children[2], {
-                                          {std::nullopt, NANOARROW_TYPE_STRING, NULLABLE},
-                                      }));
+  ASSERT_NO_FATAL_FAILURE(CompareSchema(constraint_schema->children[2],
+                                        {
+                                            {"", NANOARROW_TYPE_STRING, NULLABLE},
+                                        }));
 
   struct ArrowSchema* usage_schema = constraint_schema->children[3]->children[0];
   ASSERT_NO_FATAL_FAILURE(
@@ -744,13 +748,15 @@ void ConnectionTest::TestMetadataGetObjectsColumns() {
 
   struct TestCase {
     std::optional<std::string> filter;
-    std::vector<std::string> column_names;
-    std::vector<int32_t> ordinal_positions;
+    // the pair is column name & ordinal position of the column
+    std::vector<std::pair<std::string, int32_t>> columns;
   };
 
   std::vector<TestCase> test_cases;
-  test_cases.push_back({std::nullopt, {"int64s", "strings"}, {1, 2}});
-  test_cases.push_back({"in%", {"int64s"}, {1}});
+  test_cases.push_back({std::nullopt, {{"int64s", 1}, {"strings", 2}}});
+  test_cases.push_back({"in%", {{"int64s", 1}}});
+
+  const std::string catalog = quirks()->catalog();
 
   for (const auto& test_case : test_cases) {
     std::string scope = "Filter: ";
@@ -758,13 +764,14 @@ void ConnectionTest::TestMetadataGetObjectsColumns() {
     SCOPED_TRACE(scope);
 
     StreamReader reader;
+    std::vector<std::pair<std::string, int32_t>> columns;
     std::vector<std::string> column_names;
     std::vector<int32_t> ordinal_positions;
 
     ASSERT_THAT(
         AdbcConnectionGetObjects(
-            &connection, ADBC_OBJECT_DEPTH_COLUMNS, nullptr, nullptr, nullptr, nullptr,
-            test_case.filter.has_value() ? test_case.filter->c_str() : nullptr,
+            &connection, ADBC_OBJECT_DEPTH_COLUMNS, catalog.c_str(), nullptr, nullptr,
+            nullptr, test_case.filter.has_value() ? test_case.filter->c_str() : nullptr,
             &reader.stream.value, &error),
         IsOkStatus(&error));
     ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
@@ -834,10 +841,9 @@ void ConnectionTest::TestMetadataGetObjectsColumns() {
                 std::string temp(name.data, name.size_bytes);
                 std::transform(temp.begin(), temp.end(), temp.begin(),
                                [](unsigned char c) { return std::tolower(c); });
-                column_names.push_back(std::move(temp));
-                ordinal_positions.push_back(
-                    static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(
-                        table_columns->children[1], columns_index)));
+                columns.emplace_back(std::move(temp),
+                                     static_cast<int32_t>(ArrowArrayViewGetIntUnsafe(
+                                         table_columns->children[1], columns_index)));
               }
             }
           }
@@ -847,8 +853,9 @@ void ConnectionTest::TestMetadataGetObjectsColumns() {
     } while (reader.array->release);
 
     ASSERT_TRUE(found_expected_table) << "Did (not) find table in metadata";
-    ASSERT_EQ(test_case.column_names, column_names);
-    ASSERT_EQ(test_case.ordinal_positions, ordinal_positions);
+    // metadata columns do not guarantee the order they are returned in, just
+    // validate all the elements are there.
+    ASSERT_THAT(columns, testing::UnorderedElementsAreArray(test_case.columns));
   }
 }
 
@@ -974,13 +981,13 @@ void ConnectionTest::TestMetadataGetObjectsPrimaryKey() {
       << "could not initialize the AdbcGetObjectsData object";
 
   // Test primary key
-  struct AdbcGetObjectsTable* table =
-      AdbcGetObjectsDataGetTableByName(*get_objects_data, quirks()->catalog().c_str(),
-                                       quirks()->db_schema().c_str(), "adbc_pkey_test");
+  struct AdbcGetObjectsTable* table = InternalAdbcGetObjectsDataGetTableByName(
+      *get_objects_data, quirks()->catalog().c_str(), quirks()->db_schema().c_str(),
+      "adbc_pkey_test");
   ASSERT_NE(table, nullptr) << "could not find adbc_pkey_test table";
 
   ASSERT_EQ(table->n_table_columns, 1);
-  struct AdbcGetObjectsColumn* column = AdbcGetObjectsDataGetColumnByName(
+  struct AdbcGetObjectsColumn* column = InternalAdbcGetObjectsDataGetColumnByName(
       *get_objects_data, quirks()->catalog().c_str(), quirks()->db_schema().c_str(),
       "adbc_pkey_test", "id");
   ASSERT_NE(column, nullptr) << "could not find id column on adbc_pkey_test table";
@@ -993,7 +1000,7 @@ void ConnectionTest::TestMetadataGetObjectsPrimaryKey() {
   ConstraintTest(constraint, "PRIMARY KEY", {"id"});
 
   // Test composite primary key
-  struct AdbcGetObjectsTable* composite_table = AdbcGetObjectsDataGetTableByName(
+  struct AdbcGetObjectsTable* composite_table = InternalAdbcGetObjectsDataGetTableByName(
       *get_objects_data, quirks()->catalog().c_str(), quirks()->db_schema().c_str(),
       "adbc_composite_pkey_test");
   ASSERT_NE(composite_table, nullptr) << "could not find adbc_composite_pkey_test table";
@@ -1006,7 +1013,7 @@ void ConnectionTest::TestMetadataGetObjectsPrimaryKey() {
   const char* parent_2_column_names[2] = {"id_primary_col1", "id_primary_col2"};
   struct AdbcGetObjectsColumn* parent_2_column;
   for (int column_name_index = 0; column_name_index < 2; column_name_index++) {
-    parent_2_column = AdbcGetObjectsDataGetColumnByName(
+    parent_2_column = InternalAdbcGetObjectsDataGetColumnByName(
         *get_objects_data, quirks()->catalog().c_str(), quirks()->db_schema().c_str(),
         "adbc_composite_pkey_test", parent_2_column_names[column_name_index]);
     ASSERT_NE(parent_2_column, nullptr)
@@ -1097,7 +1104,7 @@ void ConnectionTest::TestMetadataGetObjectsForeignKey() {
       << "could not initialize the AdbcGetObjectsData object";
 
   // Test child table
-  struct AdbcGetObjectsTable* child_table = AdbcGetObjectsDataGetTableByName(
+  struct AdbcGetObjectsTable* child_table = InternalAdbcGetObjectsDataGetTableByName(
       *get_objects_data, quirks()->catalog().c_str(), quirks()->db_schema().c_str(),
       "adbc_fkey_child_test");
   ASSERT_NE(child_table, nullptr) << "could not find adbc_fkey_child_test table";
@@ -1108,7 +1115,7 @@ void ConnectionTest::TestMetadataGetObjectsForeignKey() {
   const char* child_column_names[3] = {"id_child_col1", "id_child_col2", "id_child_col3"};
   struct AdbcGetObjectsColumn* child_column;
   for (int column_index = 0; column_index < 2; column_index++) {
-    child_column = AdbcGetObjectsDataGetColumnByName(
+    child_column = InternalAdbcGetObjectsDataGetColumnByName(
         *get_objects_data, quirks()->catalog().c_str(), quirks()->db_schema().c_str(),
         "adbc_fkey_child_test", child_column_names[column_index]);
     ASSERT_NE(child_column, nullptr)

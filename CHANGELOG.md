@@ -347,7 +347,7 @@
 - **c/driver/postgresql,c/driver/sqlite**: Implement FOREIGN KEY constraints (#1099)
 - **go/adbc/driver/flightsql**: log new connections (#1146)
 - **c/driver/postgresql**: add integral COPY writers (#1130)
-- **c/driver/postgresql**: Inital COPY Writer design (#1110)
+- **c/driver/postgresql**: Initial COPY Writer design (#1110)
 - **c/driver/postgresql,c/driver/sqlite**: implement BOOL support in drivers (#1091)
 
 ### Fix
@@ -643,3 +643,524 @@
 - **csharp**: Move more options to be set centrally and enable TreatWarningsAsErrors (#1852)
 - **csharp**: Initial changes for ADBC 1.1 in C# implementation (#1821)
 - **csharp/src/Drivers/Apache/Spark**: implement async overrides for Spark driver (#1830)
+
+## ADBC Libraries 14 (2024-08-30)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.2.0
+- C#: 0.14.0
+- Java: 0.14.0
+- R: 0.14.0
+- Rust: 0.14.0
+
+### Feat
+
+- **go/adbc/driver/snowflake**: Keep track of all files copied and skip empty files in bulk_ingestion (#2106)
+- **dev/release**: add Rust release process (#2107)
+- **go/adbc/driver/bigquery**: Implement GetObjects and get tests passing (#2044)
+- **csharp/src/Client**: add support for parameterized execution (#2096)
+- **c/driver/postgresql**: Support queries that bind parameters and return a result (#2065)
+- **c/driver/postgresql**: Support JSON and JSONB types (#2072)
+- **go/adbc/driver/bigquery**: add schema to reader for BigQuery (#2050)
+- **c/driver/postgresql**: Implement consuming a PGresult via the copy reader (#2029)
+- **csharp/src/Drivers/BigQuery**: add support for configurable query timeouts (#2043)
+- **go/adbc/driver/snowflake**: use vectorized scanner for bulk ingest (#2025)
+- **c**: Add BigQuery library to Meson build system (#1994)
+- **c**: Add pkgconfig support to Meson build system (#1992)
+- **c/driver/postgresql**: FIXED_SIZED_LIST Writer support (#1975)
+- **go/adbc/driver**: add support for Google BigQuery (#1722)
+- **c/driver/postgresql**: Implement LIST/LARGE_LIST Writer (#1962)
+- **c/driver/postgresql**: Read/write support for TIME64[us] (#1960)
+- **c/driver/postgresql**: UInt(8/16/32) Writer (#1961)
+
+### Refactor
+
+- **c/driver/framework**: Separate C/C++ conversions and error handling into minimal "base" framework (#2090)
+- **c/driver/framework**: Remove fmt as required dependency of the driver framework (#2081)
+- **c**: Updated include/install paths for adbc.h (#1965)
+- **c/driver/postgresql**: Factory func for CopyWriter construction (#1998)
+- **c**: Check MakeArray/Batch Error codes with macro (#1959)
+
+### Fix
+
+- **go/adbc/driver/snowflake**: Bump gosnowflake to fix context error (#2091)
+- **c/driver/postgresql**: Fix ingest of streams with zero arrays (#2073)
+- **csharp/src/Drivers/BigQuery**: update BigQuery test cases (#2048)
+- **ci**: Pin r-lib actions as a workaround for latest action updates (#2051)
+- **csharp/src/Drivers/BigQuery**: update BigQuery documents (#2047)
+- **go/adbc/driver/snowflake**: split files properly after reaching targetSize on ingestion (#2026)
+- **c/driver/postgresql**: Ensure schema ordering is consistent and respects case sensitivity of table names (#2028)
+- **docs**: update broken link (#2016)
+- **docs**: correct snowflake options for bulk ingest (#2004)
+- **go/adbc/driver/flightsql**: propagate headers in GetObjects (#1996)
+- **c/driver/postgresql**: Fix compiler warning on gcc14 (#1990)
+- **r/adbcdrivermanager**: Ensure that class of object is checked before calling R_ExternalPtrAddrFn (#1989)
+- **ci**: update website_build.sh for new versioning scheme (#1972)
+- **dev/release**: update C# <VersionSuffix> tag (#1973)
+- **c/vendor/nanoarrow**: Fix -Wreorder warning (#1966)
+
+## ADBC Libraries 15 (2024-11-08)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.3.0
+- C#: 0.15.0
+- Java: 0.15.0
+- R: 0.15.0
+- Rust: 0.15.0
+
+### Feat
+
+- **c/driver/postgresql**: Enable basic connect/query workflow for Redshift (#2219)
+- **rust/drivers/datafusion**: add support for bulk ingest (#2279)
+- **csharp/src/Drivers/Apache**: convert Double to Float for Apache Spark on scalar conversion (#2296)
+- **go/adbc/driver/snowflake**: update to the latest 1.12.0 gosnowflake driver (#2298)
+- **csharp/src/Drivers/BigQuery**: support max stream count setting when creating read session (#2289)
+- **rust/drivers**: adbc driver for datafusion (#2267)
+- **go/adbc/driver/snowflake**: improve GetObjects performance and semantics (#2254)
+- **c**: Implement ingestion and testing for float16, string_view, and binary_view (#2234)
+- **r**: Add R BigQuery driver wrapper (#2235)
+- **csharp/src/Drivers/Apache/Spark**: add request_timeout_ms option to allow longer HTTP request length (#2218)
+- **go/adbc/driver/snowflake**: add support for a client config file (#2197)
+- **csharp/src/Client**: Additional parameter support for DbCommand (#2195)
+- **csharp/src/Drivers/Apache/Spark**: add option to ignore TLS/SSL certificate exceptions (#2188)
+- **csharp/src/Drivers/Apache/Spark**: Perform scalar data type conversion for Spark over HTTP (#2152)
+- **csharp/src/Drivers/Apache/Spark**: Azure HDInsight Spark Documentation (#2164)
+- **c/driver/postgresql**: Implement ingestion of list types for PostgreSQL (#2153)
+- **csharp/src/Drivers/Apache/Spark**: poc - Support for Apache Spark over HTTP (non-Arrow) (#2018)
+- **c/driver/postgresql**: add `arrow.opaque` type metadata (#2122)
+
+### Fix
+
+- **csharp/src/Drivers/Apache**: fix float data type handling for tests on Databricks Spark (#2283)
+- **go/adbc/driver/internal/driverbase**: proper unmarshalling for ConstraintColumnNames (#2285)
+- **csharp/src/Drivers/Apache**: fix to workaround concurrency issue (#2282)
+- **csharp/src/Drivers/Apache**: correctly handle empty response and add Client tests (#2275)
+- **csharp/src/Drivers/Apache**: remove interleaved async look-ahead code (#2273)
+- **c/driver_manager**: More robust error reporting for errors that occur before AdbcDatabaseInit() (#2266)
+- **rust**: implement database/connection constructors without options (#2242)
+- **csharp/src/Drivers**: update System.Text.Json to version 8.0.5 because of known vulnerability (#2238)
+- **csharp/src/Drivers/Apache/Spark**: correct batch handling for the HiveServer2Reader (#2215)
+- **go/adbc/driver/snowflake**: call GetObjects with null catalog at catalog depth (#2194)
+- **csharp/src/Drivers/Apache/Spark**: correct BatchSize implementation for base reader (#2199)
+- **csharp/src/Drivers/Apache/Spark**: correct precision/scale handling with zeros in fractional portion (#2198)
+- **csharp/src/Drivers/BigQuery**: Fixed GBQ driver issue when results.TableReference is null (#2165)
+- **go/adbc/driver/snowflake**: fix setting database and schema context after initial connection (#2169)
+- **csharp/src/Drivers/Interop/Snowflake**: add test to demonstrate DEFAULT_ROLE behavior (#2151)
+- **c/driver/postgresql**: Improve error reporting for queries that error before the COPY header is sent (#2134)
+
+### Refactor
+
+- **c/driver/postgresql**: cleanups for result_helper signatures (#2261)
+- **c/driver/postgresql**: Use GetObjectsHelper from framework to build objects (#2189)
+- **csharp/src/Drivers/Apache/Spark**: use UTF8 string for data conversion, instead of .NET String (#2192)
+- **c/driver/postgresql**: Use Status for error handling in BindStream (#2187)
+- **c/driver/postgresql**: Use Status instead of AdbcStatusCode/AdbcError in result helper (#2178)
+- **c/driver**: Use non-objects framework components in Postgres driver (#2166)
+- **c/driver/postgresql**: Use copy writer in BindStream for parameter binding (#2157)
+
+## ADBC Libraries 16 (2025-01-17)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.4.0
+- C#: 0.16.0
+- Java: 0.16.0
+- R: 0.16.0
+- Rust: 0.16.0
+
+### Breaking Changes
+
+- ⚠️ **rust/driver/snowflake**: return a `Result` from `Builder::from_env` when parsing fails (#2334)
+
+### New Features
+
+- **csharp/src/Client**: parse custom properties from connection string (#2352)
+- **csharp/src/Drivers**: introduce Interop.FlightSql driver (#2214)
+- **csharp/src/Drivers/Apache**: add connect and query timeout options (#2312)
+- **csharp/src/Drivers/Apache**: make Apache driver tests inheritable (#2341)
+- **rust/driver/snowflake**: add `adbc_snowflake` crate with Go driver wrapper (#2207)
+- ⚠️ **rust/driver/snowflake**: return a `Result` from `Builder::from_env` when parsing fails (#2334)
+
+### Bugfixes
+
+- **c/driver/postgresql**: don't unnecessarily COMMIT (#2412)
+- **c/driver/postgresql**: return unknown OIDs as opaque (#2450)
+- **ci**: ensure wheels are built with older manylinux (#2351)
+- **csharp/src/Apache.Arrow.Adbc/C**: export statement_execute_schema correctly (#2409)
+- **csharp/src/Drivers/Apache**: detect sever error when polling for response (#2355)
+- **csharp/src/Drivers/BigQuery**: Use job reference instead of job id to get job to avoid interference between different locations (#2433)
+- **csharp/src/Drivers/BigQuery**: ensure BigQuery DATE type is Date32 Arrow type (#2446)
+- **csharp/src/Drivers/BigQuery**: remove details to have type names match ODBC (#2431)
+- **go/adbc/driver/bigquery**: set default project and dataset for new statements (#2342)
+- **go/adbc/driver/snowflake**: update default values for fetch params (#2325)
+- **java/driver-manager**: typo (#2336)
+
+### Documentation Improvements
+
+- add related work (#2333)
+- change Flight SQL driver usage to executable example (#2395)
+- remove crosslinking to Arrow Javadocs (#2455)
+
+## ADBC Libraries 17 (2025-03-03)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.5.0
+- C#: 0.17.0
+- Java: 0.17.0
+- R: 0.17.0
+- Rust: 0.17.0
+
+### New Features
+
+- **c/driver**: add support for CMake packages of Go based drivers (#2561)
+- **ci/linux-packages/apt**: add support for Ubuntu 24.04 packages (#2482)
+- **csharp/src/Apache.Arrow.Adbc**: improved performance of ValueAt helper and AdbcDataReader (#2534)
+- **csharp/src/Drivers/Apache**: Add support for Impala ADBC Driver with Refactoring and Unit Tests (#2365)
+- **csharp/src/Drivers/BigQuery**: add support for net472 (#2527)
+- **csharp/src/Drivers/BigQuery**: use a default project ID if one is not specified (#2471)
+- **go/adbc/driver/flightsql**: allow passing arbitrary grpc dial options in NewDatabase (#2563)
+- **go/adbc/driver/snowflake**: add query tag option (#2484)
+- **go/adbc/driver/snowflake**: implement WithTransporter driver option (#2558)
+
+### Bugfixes
+
+- **c/driver/sqlite**: don't rely on double-quoted strings feature (#2555)
+- **go/adbc/driver/flightsql**: Parsing column metadata in FlightSQL driver (#2481)
+- **go/adbc/driver/snowflake**: fix GetObjects for VECTOR cols (#2564)
+- **go/adbc/driver/snowflake**: use one session for connection (#2494)
+
+### Documentation Improvements
+
+- add SQLite cookbook example for batch size/inference (#2523)
+- add stdout/stderr and index support to recipe directive (#2495)
+- crosslink to Arrow Javadocs again (#2483)
+- fix references to root CONTRIBUTING.md file (#2521)
+- update java quickstart to use the PARAM_URI instead of the legacy PARAM_URL (#2530)
+
+## ADBC Libraries 18 (2025-05-02)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.6.0
+- C#: 0.18.0
+- Java: 0.18.0
+- R: 0.18.0
+- Rust: 0.18.0
+
+### New Features
+
+- **c**: Declare dependencies for drivers in Meson configuration (#2746)
+- **c/driver/postgresql**: avoid commit/rollback when idle (#2685)
+- **csharp**: Add retry-after behavior for 503 responses in Spark ADBC driver (#2664)
+- **csharp**: Add support for Prepare to ImportedStatement and to ADO.NET wrapper (#2628)
+- **csharp**: Implement CloudFetch for Databricks Spark driver (#2634)
+- **csharp**: fix powerbi hang when reading cloudfetch result in Databricks driver (#2747)
+- **csharp**: improve handling of StructArrays (#2587)
+- **csharp/src/Drivers**: Add Databricks driver (#2672)
+- **csharp/src/Drivers/Apache**: Add prefetch functionality to CloudFetch in Spark ADBC driver (#2678)
+- **csharp/src/Drivers/Apache**: Add support for Hive ADBC Driver with unit tests (#2540)
+- **csharp/src/Drivers/Apache**: Add support for native metadata queries using statement options (#2665)
+- **csharp/src/Drivers/Apache**: Custom ssl server certificate validation for Spark, Impala & Hive (#2610)
+- **csharp/src/Drivers/Apache**: Performance improvement - Replace TSocketTransport with TBufferedTransport (#2742)
+- **csharp/src/Drivers/Apache**: Regenerate Thrift classes based on a newer TCLIService.thrift (#2611)
+- **csharp/src/Drivers/Apache**: enhance GetColumns with BASE_TYPE_NAME column (#2695)
+- **csharp/src/Drivers/Apache/Spark**: Add Lz4 compression support to arrow batch reader (#2669)
+- **csharp/src/Drivers/Apache/Spark**: Add OAuth access token auth type to Csharp Spark Driver (#2579)
+- **csharp/src/Drivers/Apache/Spark**: add user agent entry + thrift version for spark http connections (#2711)
+- **csharp/src/Drivers/BigQuery**: Add support for AAD/Entra authentication (#2655)
+- **csharp/src/Drivers/BigQuery**: add additional billing and timeout properties and test settings (#2566)
+- **csharp/src/Drivers/BigQuery**: choose the first project ID if not specified (#2541)
+- **csharp/src/Drivers/BigQuery**: support evaluation kind and statement type setting (#2698)
+- **csharp/src/Drivers/Databricks**: Add option to enable using direct results for statements (#2737)
+- **csharp/src/Drivers/Databricks**: Implement ClientCredentialsProvider (#2743)
+- **csharp/src/Drivers/Databricks**: Make Cloud Fetch options configurable at the connection level (#2691)
+- **csharp/src/Drivers/Databricks**: Support server side property passthrough (#2692)
+- **go/adbc/driver/bigquery**: Return data about table/view partitioning (#2697)
+- **go/adbc/driver/flightsql**: Add OAuth Support to Flight Client (#2651)
+- **go/adbc/sqldriver**: read from union types (#2637)
+- **java/driver/jni**: add JNI bindings to native driver manager (#2401)
+- **python/adbc_driver_manager**: add cursor() arg to set options (#2589)
+- **python/adbc_driver_manager**: enable DB-API without PyArrow (#2609)
+
+### Bugfixes
+
+- **c**: Add libdl as dependency of driver manager in Meson (#2735)
+- **c/driver/postgresql**: avoid crash if closing invalidated result (#2653)
+- **c/driver/postgresql**: handle connection options before Init (#2701)
+- **ci**: Skip flaky ASAN failures in Meson (#2604)
+- **ci**: add missing trigger paths for Linux packages (#2761)
+- **ci**: fix MacOS builds for C# (#2606)
+- **csharp/src**: Add missing override to ImportedAdbcConnection (#2577)
+- **csharp/src/Drivers/Apache**: Fix setting foreign schema/table in GetCrossReference (#2765)
+- **csharp/src/Drivers/Apache**: Improve handling of authentication and server type enumeration parsing (#2574)
+- **csharp/src/Drivers/Apache**: Set tls enabled to true all HTTP-based drivers, by default (#2667)
+- **csharp/src/Drivers/Apache/Thrift**: Generated Thrift-based code should not be exposed publicly (#2710)
+- **csharp/src/Drivers/Databricks**: Fix Lz4 compression logic for DatabricksReader (#2690)
+- **dev/release**: remove incorrect `-f` from `mamba create` (#2755)
+- **dev/release**: use packages.apache.org instead of apache.jfrog.io (#2756)
+- **glib**: use -fPIE explicitly for g-ir-scanner (#2758)
+- **go**: Use arrow-go in templates instead of arrow/go (#2712)
+- **go/adbc/driver/bigquery**: Avoid creating arrow iterator when schema is empty (#2614)
+- **go/adbc/driver/bigquery**: Use number of rows (rather than schema) to check if we need an empty arrow iterator (#2674)
+- **go/adbc/driver/snowflake**: implement ability to set database options after initialization (#2728)
+- **go/adbc/driver/snowflake**: try to suppress stray logs (#2608)
+- **python/adbc_driver_postgresql**: handle kwargs in dbapi connect (#2700)
+- **rust/core**: remove the Mutex around the FFI driver object (#2736)
+
+### Documentation Improvements
+
+- rework "What exactly is ADBC?" in FAQ (#2763)
+- update implementation status table (#2580)
+- **rust**: show driver_manager features on docs.rs (#2699)
+
+## ADBC Libraries 19 (2025-07-02)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.7.0
+- C#: 0.19.0
+- Java: 0.19.0
+- R: 0.19.0
+- Rust: 0.19.0
+
+### Breaking Changes
+
+- ⚠️ **rust**: Let immutable drivers create connections (#2788)
+
+### New Features
+
+- **c/driver/postgresql**: add read support for int2vector (#2919)
+- **c/driver_manager**: add new function to allow loading by manifest (#2918)
+- **csharp**: Sanitize thrift protocol generated code for Databricks driver (#2787)
+- **csharp/src/Apache.Arrow.Adbc**: OpenTelemetry tracing baseline (#2847)
+- **csharp/src/Drivers/Apache**: Add escape underscore parameter to metadata command (#2920)
+- **csharp/src/Drivers/Apache**: Add support for Sasl transport in Hive and Impala ADBC Driver (#2822)
+- **csharp/src/Drivers/Apache**: Format HiveServer2Exception messages (#2934)
+- **csharp/src/Drivers/Apache**: Implement GetColumnsExtended metadata for Databricks (#2766)
+- **csharp/src/Drivers/Apache**: Implement Standard SSL mode for Impala (#2745)
+- **csharp/src/Drivers/Databricks**: Add cloud fetch heartbeat polling tests (#2898)
+- **csharp/src/Drivers/Databricks**: Add configurable multiple catalog support (#2845)
+- **csharp/src/Drivers/Databricks**: Allow configurable auth scope for client-credentials flow (#2803)
+- **csharp/src/Drivers/Databricks**: BaseDatabricksReader (#2842)
+- **csharp/src/Drivers/Databricks**: Databricks Proxy Configurator (#2789)
+- **csharp/src/Drivers/Databricks**: Default catalog + schema support (#2806)
+- **csharp/src/Drivers/Databricks**: Default catalogs edge cases (#2896)
+- **csharp/src/Drivers/Databricks**: Fix for older DBR versions incorrect ResultFormat (#3020)
+- **csharp/src/Drivers/Databricks**: Fix initial catalog typo (#3057)
+- **csharp/src/Drivers/Databricks**: Fix status polling test (#2838)
+- **csharp/src/Drivers/Databricks**: Fixes to heartbeat polling (#2851)
+- **csharp/src/Drivers/Databricks**: Handle legacy SPARK catalog (#2884)
+- **csharp/src/Drivers/Databricks**: Implement CloudFetchUrlManager to handle presigned URL expiration in CloudFetch (#2855)
+- **csharp/src/Drivers/Databricks**: Integrate OAuthClientCredentialsProvider with Databricks Driver (#2762)
+- **csharp/src/Drivers/Databricks**: Integrate ProxyConfigurations with Drivers (#2794)
+- **csharp/src/Drivers/Databricks**: Multiple catalogs with default database (#2921)
+- **csharp/src/Drivers/Databricks**: OAuthClientCredentialsProvider test improvements (#2799)
+- **csharp/src/Drivers/Databricks**: Optimize GetColumnsExtendedAsync via DESC TABLE EXTENDED (#2953)
+- **csharp/src/Drivers/Databricks**: Poll status to keep query alive (#2820)
+- **csharp/src/Drivers/Databricks**: Primary Key and Foreign Key Metadata Optimization (#2886)
+- **csharp/src/Drivers/Databricks**: Protocol feature negotiator (#2985)
+- **glib**: Add gadbc_database_set_load_flags() (#3041)
+- **go/adbc**: prototype OpenTelemetry trace file exporter in go driver (#2729)
+- **go/adbc/driver**: initial tracing instrumentation for Snowflake driver (#2825)
+- **go/adbc/driver/flightsql**: add SSL root certs to oauth (#2829)
+- **go/adbc/driver/snowflake**: New setting to set the maximum timestamp precision to microseconds (#2917)
+- **go/adbc/drivermgr**: Set default load flags for drivermgr to load manifests (#3021)
+- **python/adbc_driver_manager**: Update python driver_manager to load manifests (#3018)
+- **python/adbc_driver_manager**: accept pathlib.Path in Database (#3035)
+- **python/adbc_driver_manager**: simplify autocommit=True (#2990)
+- **python/adbc_driver_manager**: support more APIs sans PyArrow (#2839)
+- **r/adbcdrivermanager**: Add load by manifest to adbcdrivermanager (#3036)
+
+### Bugfixes
+
+- **.github/workflows**: update windows os version for csharp workflow (#2950)
+- **c**: Ignore dl dependency on Windows with Meson (#2848)
+- **c**: enable linking to static builds (#2738)
+- **c/driver/postgresql**: ingest zoned timestamp as WITH TIME ZONE (#2904)
+- **c/validation**: Use disabler pattern for validation_dep in Meson (#2849)
+- **csharp/src/Drivers**: Add FK_NAME and KEQ_SEQ fields to GetColumnsExtended and improve type handling (#2959)
+- **csharp/src/Drivers**: Enhance pattern wildcard escaping in metadata operations (#2960)
+- **csharp/src/Drivers/Apache**: improve metadata query handling (#2926)
+- **csharp/src/Drivers/Apache/Hive2**: Add ServerProtocolVersion in Connection (#2948)
+- **csharp/src/Drivers/Apache/Hive2**: improve foreign key handling in GetColumnsExtended (#2894)
+- **csharp/src/Drivers/BigQuery**: Fix the bug about QueryResultsOptions and script statement (#2796)
+- **csharp/src/Drivers/BigQuery**: Fix the bug about large result and timeout (#2810)
+- **csharp/src/Drivers/BigQuery**: Prevent callers from attempting to use the public project ID to create query jobs (#2966)
+- **csharp/src/Drivers/BigQuery**: TIME should be Time64Type.Microsecond (#2741)
+- **csharp/src/Drivers/Databricks**: Align ConnectionTimeout with TemporarilyUnavailableRetryTimeout (#3073)
+- **csharp/src/Drivers/Databricks**: Fix parsing of lowercase server side properties (#2885)
+- **csharp/src/Drivers/Databricks**: Remove redundant statement close operation (#2952)
+- **csharp/src/Drivers/Databricks**: increase default retry timeout (#2925)
+- **docs**: Add `cmake --build` step (#2840)
+- **docs**: update go install command in flight sql recipe (#2798)
+- **go/adbc**: adding back compatibility for function FlightSQLDriverInit (#3056)
+- **go/adbc/driver**: inject version to built Go drivers (#2916)
+- **go/adbc/driver/internal/driverbase**: Ensure to propagate the traceParent from the driver/database to connection (#2951)
+- **go/adbc/driver/internal/driverbase**: fix missing interface func (#3009)
+- **go/adbc/driver/snowflake**: Adjust the precision of the Timestamp values in the JSON-only path (#2965)
+- **go/adbc/driver/snowflake**: Boolean columns return as string types in an empty recordset schema (#2854)
+- **go/adbc/driver/snowflake**: fix copy concurrency 0 (#2805)
+- **go/adbc/driver/snowflake**: set log level to not spam console (#2807)
+- **python/adbc_driver_manager**: don't leak array streams (#2922)
+- **r/adbcbigquery, r/adbcflightsql, r/adbcsnowflake**: fix warnings on R CMD check for  Go-based drivers (#3061)
+- **r/adbcsnowflake**: Fix configuration of adbcsnowflake when configure is run from a git shell (#2771)
+- **r/adbcsqlite**: Don't print results of compilation failure when checking for extension support (#3003)
+- ⚠️ **rust**: Let immutable drivers create connections (#2788)
+- **rust**: fix `package.rust-version` fields to match to MSRV (#2997)
+- **rust/core**: URLs pointing to `adbc.h` in docs (#2883)
+- **rust/core**: use $crate so driver export works outside crate (#2808)
+
+### Documentation Improvements
+
+- acknowledge Rust's existence (#3083)
+- add USE_COPY recipe and update PostgreSQL docs (#2859)
+- add installation of basic Python dependencies to CONTRIBUTING.md (#3053)
+- add missing mention of Python in supported languages (#2853)
+- describe Snowflake URI creation (#3062)
+- fix target name for c/c++ quickstart (#2906)
+- fix typo (#2862)
+- fix typo (#2888)
+- fix typo in docs/source/driver/jdbc.rst (#3081)
+- show a warning banner when viewing old/dev docs (#2860)
+- update CONTRIBUTING to use mamba consistently (#2995)
+- update installation commands for R (#3060)
+- update jdbc.rst to fix dependency artifact ID mismatch (#2976)
+- **rust**: add ADBC_SNOWFLAKE_GO_LIB_DIR requirement (#2984)
+- **rust**: add protobuf requirement (#2964)
+
+## ADBC Libraries 20 (2025-09-09)
+
+### Versions
+
+- C/C++/GLib/Go/Python/Ruby: 1.8.0
+- C#: 0.20.0
+- Java: 0.20.0
+- R: 0.20.0
+- Rust: 0.20.0
+
+### Breaking Changes
+
+- ⚠️ **rust**: not to mark some enums as `non_exhaustive` (#3245)
+- ⚠️ **rust/core**: move the driver_manager feature to the new adbc_driver_manager package (#3197)
+- ⚠️ **rust/core**: move the ffi related stuff to the new adbc_ffi package (#3381)
+- ⚠️ **rust/driver/datafusion**: update to datafusion 48 (#3167)
+
+### New Features
+
+- **c/driver/postgresql**: bind arrow.json to JSON (#3333)
+- **c/driver/sqlite, python/adbc_driver_manager**: bind params by name (#3362)
+- **c/driver_manager**: don't ignore invalid manifests (#3399)
+- **c/driver_manager**: improve error reporting for manifests (#3386)
+- **c/driver_manager, rust/driver_manager**: add manifest version check (#3393)
+- **c/driver_manager, rust/driver_manager**: handle virtual environments in driver manager (#3320)
+- **csharp/src**: Add support for adding and configuring OTel exporters (#2949)
+- **csharp/src/Apache.Arrow.Adbc/Tracing**: allow ActivitySource tags to be set from TracingConnection (#3218)
+- **csharp/src/Drivers**: update drivers to .NET 8 (#3120)
+- **csharp/src/Drivers/Apache**: Add compression support for Spark, Impala & Hive Http Connection (#3127)
+- **csharp/src/Drivers/Apache**: Enabled Standard protocol for Spark and used SASL transport with basic auth (#3380)
+- **csharp/src/Drivers/Apache**: Implement protocol fallback mechanism to support old server version of Spark & Hive (#3312)
+- **csharp/src/Drivers/Apache**: Implement self signed ssl certificate validation for Spark, Impala & Hive (#3224)
+- **csharp/src/Drivers/Apache**: add env variable config override for databricks (#3304)
+- **csharp/src/Drivers/Apache**: add support for Statement.Cancel (#3302)
+- **csharp/src/Drivers/BigQuery**: Enhanced tracing and large resultset improvements (#3022)
+- **csharp/src/Drivers/Databricks**: Add W3C trace context (#3082)
+- **csharp/src/Drivers/Databricks**: Fix EnablePkFk (#3098)
+- **csharp/src/Drivers/Databricks**: Fix StatementTimeoutTest (#3133)
+- **csharp/src/Drivers/Databricks**: Move DescribeTableExtended to version negotiator (#3137)
+- **csharp/src/Drivers/Databricks**: Remove redundant CloseOperation for GetColumnsAsync (#3132)
+- **csharp/src/Drivers/Databricks**: Remove redundant closeoperation (#3093)
+- **csharp/src/Drivers/Databricks**: Use ArrowSchema for Response Schema (#3140)
+- **csharp/test/Drivers/Databricks**: Add mandatory token exchange (#3192)
+- **csharp/test/Drivers/Databricks**: Enable RunAsync option in TExecuteStatementReq (#3171)
+- **csharp/test/Drivers/Databricks**: Support token refresh to extend connection lifetime (#3177)
+- **glib**: add AdbcStatementGetParameterSchema() bindings (#3118)
+- **go/adbc**: add GetDriverInfo helper (#3239)
+- **go/adbc**: add IngestStream helper for one-call ingestion and add TestIngestStream (#3150)
+- **go/adbc/driver/bigquery**: Add "adbc.bigquery.sql.location" param (#3280)
+- **go/adbc/driver/bigquery**: error if we lack readSessionUser (#3297)
+- **go/adbc/driver/bigquery**: support service account impersonation (#3174)
+- **go/adbc/driver/snowflake**: Enable PAT and WIF auth (#3366)
+- **go/adbc/sqldriver**: handle timestamp/time.Time values for input (#3109)
+- **java/driver/jni**: enable new load flags (#3373)
+- **java/driver/jni**: implement parameter binding (#3370)
+- **java/driver/jni**: pass through all initial params (#3372)
+- **ruby**: don't use adbc-arrow-glib (#3221)
+- **rust/core**: add function to load driver manifests (#3099)
+- **rust/driver/snowflake**: add `pat` and `wif` auth types (#3376)
+
+### Bugfixes
+
+- **c/driver_manager**: add `drivers` subdir in search paths (#3375)
+- **c/driver_manager**: fix expected `;` for musl arch (#3105)
+- **c/driver_manager**: modify SYSTEM path behavior on macOS (#3250)
+- **c/driver_manager**: rename `ADBC_CONFIG_PATH` to `ADBC_DRIVER_PATH` (#3379)
+- **c/driver_manager**: use Driver.entrypoint as per docs (#3242)
+- **c/driver_manager, rust/driver_manager**: establish standard platform tuples (#3313)
+- **csharp/src/Apache.Arrow.Adbc/C**: Stop trying to unload dynamic libraries (#3291)
+- **csharp/src/Drivers**: Fix cloud fetch cancel/timeout mechanism (#3285)
+- **csharp/src/Drivers/Apache**: generate type-consistent empty result for GetColumnsExtended query (#3096)
+- **csharp/src/Drivers/Apache/Hive2**: Remove unnecessary CloseOperation in Statement.Dispose when query is metadata query (#3189)
+- **csharp/src/Drivers/Apache/Hive2**: add check to see if operation is already closed (#3301)
+- **csharp/src/Drivers/Apache/Spark**: fix column metadata index offset for Spark standard (#3392)
+- **csharp/src/Drivers/BigQuery**: Adjust default dataset id (#3187)
+- **csharp/src/Drivers/BigQuery**: Include try/catch for InvalidOperationException in ReadRowsStream (#3361)
+- **csharp/src/Drivers/BigQuery**: Modify ReadChunk behavior (#3323)
+- **csharp/src/Drivers/BigQuery**: add details for retried error message (#3244)
+- **csharp/src/Drivers/Databricks**: Add another fallback check of GetColumnsExtendedAsync (#3219)
+- **csharp/src/Drivers/Databricks**: Add instructions about driver config setup (#3367)
+- **csharp/src/Drivers/Databricks**: Change fallback check of Databricks.GetColumnsExtendedAsync (#3121)
+- **csharp/src/Drivers/Databricks**: Correct DatabricksCompositeReader and StatusPoller to Stop/Dispose Appropriately (#3217)
+- **csharp/src/Drivers/Databricks**: DatabricksCompositeReader unit tests (#3265)
+- **csharp/src/Drivers/Databricks**: Fix Databricks readme (#3365)
+- **csharp/src/Drivers/Databricks**: Fix null pointer exception (#3261)
+- **csharp/src/Drivers/Databricks**: PECO-2562 Use "default" schema in open session request (#3359)
+- **csharp/src/Drivers/Databricks**: Reader Refactors (#3254)
+- **csharp/src/Drivers/Databricks**: Set GetObjectsPatternsRequireLowerCase true (#3131)
+- **csharp/src/Drivers/Databricks**: Set enable_run_async_thrift default true (#3232)
+- **csharp/src/Drivers/Databricks**: Set the SqlState of the exception in RetryHttpHandler (#3092)
+- **csharp/src/Drivers/Databricks**: Use default result persistence mode (#3203)
+- **csharp/src/Drivers/Databricks**: [PECO-2396] Fix timestamp for dbr 6.6 - Set timestamp configuration on OpenSessionReq (#3327)
+- **csharp/src/Drivers/Databricks**: correct tracing instrumentation for assembly name and version (#3170)
+- **csharp/src/Drivers/Databricks**: fix CloudFetchResultFetcher initial results processing logic (#3097)
+- **csharp/test/Drivers**: Fix databricks tests (#3358)
+- **csharp/test/Drivers/Databricks**: Change the default QueryTimeoutSeconds to 3 hours (#3175)
+- **csharp/test/Drivers/Databricks**: Enrich RetryHttpHandler with other status codes (#3186)
+- **csharp/test/Drivers/Databricks**: Fix Pkfk Testcase (#3193)
+- **csharp/test/Drivers/Databricks**: Run token exchange in a background task (#3188)
+- **go/adbc**: Forward SQLSTATE and vendor code (#2801)
+- **go/adbc**: changing the location of FlightSQLDriverInit function (#3079)
+- **go/adbc/driver/bigquery**: accept old auth option value (#3317)
+- **go/adbc/driver/bigquery**: fix parsing repeated records with nested fields (#3240)
+- **go/adbc/driver/bigquery**: fix timestamp arrow type to use micro seconds (#3364)
+- **go/adbc/driver/snowflake**: fix unit tests (#3377)
+- **go/adbc/drivermgr**: properly vendor toml++ (#3138)
+- **go/adbc/pkg**: Run make regenerate to keep generated code in sync with templates (#3202)
+- **go/adbc/pkg**: add PowerShell option to run when executing in a Windows-based ADO pipeline (#3124)
+- **java/driver/jni**: update AdbcDriverFactory metadata (#3348)
+- **python/adbc_driver_bigquery**: correct string value of credential enum (#3091)
+- **python/adbc_driver_manager**: handle empty params in executemany (#3332)
+- **python/adbc_driver_manager**: mark calls with nogil (#3321)
+- **rust/core**: fix build error on windows and enable ci for windows (#3148)
+- **rust/driver_manager**: modify SYSTEM path behavior on macOS (#3252)
+
+### Documentation Improvements
+
+- Fix pip install command for arrow-adbc-nightlies (#3222)
+- add Snowflake and BigQuery drivers to Python API reference (#3088)
+- add docs for driver manifests (#3176)
+- clarify relationship specification.rst to adbc.h (#3226)
+- consistent use of `pushd` instead of `cd` in the contributing guide (#3089)
+- fix invalid link in snowflake docs (#3246)
+- fix safari rendering in manifest_load.mmd diagram (#3391)
+- fix typo in python/adbc_driver_postgresql/README.md (#3194)
+- generate driver status from README badges (#2890)
+- improve go docs by adding a readme (#3204)
+- link to AdbcDriverInitFunc in how_manager.rst (#3227)
+- minor edits for first version of driver manager docs (#3180)
+- minor improvements to driver_manifests.rst (#3394)
+- organize Documentation steps of CONTRIBUTING.md (#3100)
+- rework driver manager references across docs (#3388)
+- **rust/core**: add simple usage of Driver Manager (#3086)

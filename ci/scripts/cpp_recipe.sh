@@ -23,30 +23,35 @@ set -e
 : ${ADBC_CMAKE_ARGS:=""}
 : ${CMAKE_BUILD_TYPE:=Debug}
 
-main() {
-    local -r source_dir="${1}"
-    local -r install_dir="${2}"
-    local -r build_dir="${3}"
+test_recipe() {
+    local -r recipe="${1}"
+    local -r source_dir="${2}"
+    local -r install_dir="${3}"
+    local -r build_dir="${4}"
 
     export DYLD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${install_dir}/lib"
     export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${install_dir}/lib"
     export GOEXPERIMENT=cgocheck2
 
+    rm -rf "${build_dir}"
     mkdir -p "${build_dir}"
     pushd "${build_dir}"
 
     set -x
-    cmake "${source_dir}/docs/source/cpp/recipe/" \
+    cmake "${source_dir}/${recipe}/" \
           ${ADBC_CMAKE_ARGS} \
           -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
           -DCMAKE_INSTALL_LIBDIR=lib \
-          -DCMAKE_PREFIX_PATH="${install_dir}"
+          -DCMAKE_INSTALL_PREFIX="${install_dir}" \
+          -DCMAKE_PREFIX_PATH="${install_dir}" \
+          -DADBC_DRIVER_EXAMPLE_BUILD_TESTS=ON
     set +x
 
-    cmake --build . -j
+    cmake --build . --target install -j
     ctest \
         --output-on-failure \
         --no-tests=error
 }
 
-main "$@"
+test_recipe "docs/source/cpp/recipe" "$@"
+test_recipe "docs/source/cpp/recipe_driver" "$@"

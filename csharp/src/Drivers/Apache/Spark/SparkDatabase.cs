@@ -15,22 +15,30 @@
 * limitations under the License.
 */
 
+using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
-    public class SparkDatabase : AdbcDatabase
+    internal class SparkDatabase : AdbcDatabase
     {
         readonly IReadOnlyDictionary<string, string> properties;
 
-        public SparkDatabase(IReadOnlyDictionary<string, string> properties)
+        internal SparkDatabase(IReadOnlyDictionary<string, string> properties)
         {
             this.properties = properties;
         }
 
-        public override AdbcConnection Connect(IReadOnlyDictionary<string, string>? properties)
+        public override AdbcConnection Connect(IReadOnlyDictionary<string, string>? options)
         {
-            SparkConnection connection = new SparkConnection(this.properties);
+            // connection options takes precedence over database properties for the same option
+            IReadOnlyDictionary<string, string> mergedProperties = options == null
+                ? properties
+                : options
+                    .Concat(properties.Where(x => !options.Keys.Contains(x.Key, StringComparer.OrdinalIgnoreCase)))
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+            SparkConnection connection = SparkConnectionFactory.NewConnection(mergedProperties); // new SparkConnection(mergedProperties);
             connection.OpenAsync().Wait();
             return connection;
         }

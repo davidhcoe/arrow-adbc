@@ -21,17 +21,17 @@ set source_dir=%1
 
 echo "=== (%PYTHON_VERSION%) Installing wheels ==="
 
-FOR %%c IN (adbc_driver_manager adbc_driver_flightsql adbc_driver_postgresql adbc_driver_sqlite adbc_driver_snowflake) DO (
+FOR %%c IN (adbc_driver_bigquery adbc_driver_manager adbc_driver_flightsql adbc_driver_postgresql adbc_driver_sqlite adbc_driver_snowflake) DO (
     FOR %%w IN (%source_dir%\python\%%c\dist\*.whl) DO (
         pip install --no-deps --force-reinstall %%w || exit /B 1
     )
 )
 
-pip install importlib-resources pytest pyarrow pandas protobuf
+pip install importlib-resources pytest pyarrow pandas polars protobuf
 
 echo "=== (%PYTHON_VERSION%) Testing wheels ==="
 
-FOR %%c IN (adbc_driver_manager adbc_driver_flightsql adbc_driver_postgresql adbc_driver_sqlite adbc_driver_snowflake) DO (
+FOR %%c IN (adbc_driver_bigquery adbc_driver_manager adbc_driver_flightsql adbc_driver_postgresql adbc_driver_sqlite adbc_driver_snowflake) DO (
     echo "=== Testing %%c ==="
     python -c "import %%c" || exit /B 1
     python -c "import %%c.dbapi" || exit /B 1

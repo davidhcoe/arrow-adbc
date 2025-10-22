@@ -19,6 +19,7 @@
 set -e
 
 : ${BUILD_ALL:=1}
+: ${BUILD_DRIVER_BIGQUERY:=${BUILD_ALL}}
 : ${BUILD_DRIVER_FLIGHTSQL:=${BUILD_ALL}}
 : ${BUILD_DRIVER_MANAGER:=${BUILD_ALL}}
 : ${BUILD_DRIVER_POSTGRESQL:=${BUILD_ALL}}
@@ -62,6 +63,10 @@ main() {
 
     if [[ "${BUILD_DRIVER_SNOWFLAKE}" -gt 0 ]]; then
         install_pkg "${source_dir}" "${install_dir}" adbcsnowflake
+    fi
+
+    if [[ "${BUILD_DRIVER_BIGQUERY}" -gt 0 ]]; then
+        install_pkg "${source_dir}" "${install_dir}" adbcbigquery
     fi
 }
 

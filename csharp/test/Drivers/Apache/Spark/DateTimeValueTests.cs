@@ -16,104 +16,17 @@
 */
 
 using System;
-using System.Collections.Generic;
-using System.Globalization;
 using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
 {
-    // TODO: When supported, use prepared statements instead of SQL string literals
-    //      Which will better test how the driver handles values sent/received
-
-    /// <summary>
-    /// Validates that specific date, timestamp and interval values can be inserted, retrieved and targeted correctly
-    /// </summary>
-    public class DateTimeValueTests : SparkTestBase
+    public class DateTimeValueTests : Common.DateTimeValueTests<SparkTestConfiguration, SparkTestEnvironment>
     {
-        // Spark handles microseconds but not nanoseconds. Truncated to 6 decimal places.
-        const string DateTimeZoneFormat = "yyyy-MM-dd'T'HH:mm:ss'.'ffffffK";
-        const string DateFormat = "yyyy-MM-dd";
-
-        private static readonly DateTimeOffset[] s_timestampValues = new[]
-        {
-#if NET5_0_OR_GREATER
-            DateTimeOffset.UnixEpoch,
-#endif
-            DateTimeOffset.MinValue,
-            DateTimeOffset.MaxValue,
-            DateTimeOffset.UtcNow,
-            DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(4))
-        };
-
-        public DateTimeValueTests(ITestOutputHelper output) : base(output) { }
-
-        /// <summary>
-        /// Validates if driver can send and receive specific Timstamp values correctly
-        /// </summary>
-        [SkippableTheory]
-        [MemberData(nameof(TimestampData), "TIMESTAMP")]
-        [MemberData(nameof(TimestampData), "TIMESTAMP_LTZ")]
-        public async Task TestTimestampData(DateTimeOffset value, string columnType)
-        {
-            string columnName = "TIMESTAMPTYPE";
-            using TemporaryTable table = await NewTemporaryTableAsync(Statement, string.Format("{0} {1}", columnName, columnType));
-
-            string formattedValue = $"{value.ToString(DateTimeZoneFormat, CultureInfo.InvariantCulture)}";
-            DateTimeOffset truncatedValue = DateTimeOffset.ParseExact(formattedValue, DateTimeZoneFormat, CultureInfo.InvariantCulture);
-
-            await ValidateInsertSelectDeleteSingleValueAsync(
-                table.TableName,
-                columnName,
-                truncatedValue,
-                QuoteValue(formattedValue));
-        }
-
-        /// <summary>
-        /// Validates if driver can send and receive specific no timezone Timstamp values correctly
-        /// </summary>
-        [SkippableTheory]
-        [MemberData(nameof(TimestampData), "TIMESTAMP_NTZ")]
-        public async Task TestTimestampNoTimezoneData(DateTimeOffset value, string columnType)
-        {
-            // Note: Minimum value falls outside range of valid values on server when no time zone is included. Cannot be selected
-            Skip.If(value == DateTimeOffset.MinValue);
-
-            string columnName = "TIMESTAMPTYPE";
-            using TemporaryTable table = await NewTemporaryTableAsync(Statement, string.Format("{0} {1}", columnName, columnType));
-
-            string formattedValue = $"{value.ToString(DateFormat, CultureInfo.InvariantCulture)}";
-            DateTimeOffset truncatedValue = DateTimeOffset.ParseExact(formattedValue, DateFormat, CultureInfo.InvariantCulture);
-
-            await ValidateInsertSelectDeleteSingleValueAsync(
-                table.TableName,
-                columnName,
-                // Remove timezone offset
-                new DateTimeOffset(truncatedValue.DateTime, TimeSpan.Zero),
-                QuoteValue(formattedValue));
-        }
-
-        /// <summary>
-        /// Validates if driver can send and receive specific no timezone Timstamp values correctly
-        /// </summary>
-        [SkippableTheory]
-        [MemberData(nameof(TimestampData), "DATE")]
-        public async Task TestDateData(DateTimeOffset value, string columnType)
-        {
-            string columnName = "DATETYPE";
-            using TemporaryTable table = await NewTemporaryTableAsync(Statement, string.Format("{0} {1}", columnName, columnType));
-
-            string formattedValue = $"{value.ToString(DateFormat, CultureInfo.InvariantCulture)}";
-            DateTimeOffset truncatedValue = DateTimeOffset.ParseExact(formattedValue, DateFormat, CultureInfo.InvariantCulture);
-
-            await ValidateInsertSelectDeleteSingleValueAsync(
-                table.TableName,
-                columnName,
-                // Remove timezone offset
-                new DateTimeOffset(truncatedValue.DateTime, TimeSpan.Zero),
-                QuoteValue(formattedValue));
-        }
+        public DateTimeValueTests(ITestOutputHelper output)
+            : base(output, new SparkTestEnvironment.Factory())
+        { }
 
         /// <summary>
         /// Tests INTERVAL data types (YEAR-MONTH and DAY-SECOND).
@@ -151,12 +64,17 @@ namespace Apache.Arrow.Adbc.Tests.Drivers.Apache.Spark
             await SelectAndValidateValuesAsync(selectStatement, value, 1);
         }
 
-        public static IEnumerable<object[]> TimestampData(string columnType)
+        [SkippableTheory]
+        [MemberData(nameof(TimestampBasicData), "TIMESTAMP")]
+        [MemberData(nameof(TimestampExtendedData), "TIMESTAMP")]
+        public override Task TestTimestampData(DateTimeOffset value, string columnType)
         {
-            foreach (DateTimeOffset timestamp in s_timestampValues)
-            {
-                yield return new object[] { timestamp, columnType };
-            }
+            return base.TestTimestampData(value, columnType);
+        }
+
+        protected override string GetFormattedTimestampValue(string value)
+        {
+            return "TO_TIMESTAMP(" + QuoteValue(value) + ")";
         }
     }
 }

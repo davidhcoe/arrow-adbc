@@ -15,15 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <algorithm>
+#include <cstring>
+#include <random>
+#include <string>
+#include <vector>
+
 #include <arrow-adbc/adbc.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest-matchers.h>
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest.h>
 #include <nanoarrow/nanoarrow.h>
-#include <algorithm>
-#include <cstring>
-#include <random>
+
 #include "validation/adbc_validation.h"
 #include "validation/adbc_validation_util.h"
 
@@ -99,7 +103,7 @@ class SnowflakeQuirks : public adbc_validation::DriverQuirks {
     adbc_validation::Handle<struct AdbcStatement> statement;
     CHECK_OK(AdbcStatementNew(connection, &statement.value, error));
 
-    std::string create = "CREATE TABLE \"";
+    std::string create = "CREATE OR REPLACE TABLE \"";
     create += name;
     create += "\" (int64s INT, strings TEXT)";
     CHECK_OK(AdbcStatementSetSqlQuery(&statement.value, create.c_str(), error));
@@ -131,7 +135,13 @@ class SnowflakeQuirks : public adbc_validation::DriverQuirks {
         return NANOARROW_TYPE_DOUBLE;
       case NANOARROW_TYPE_STRING:
       case NANOARROW_TYPE_LARGE_STRING:
+      case NANOARROW_TYPE_LIST:
+      case NANOARROW_TYPE_LARGE_LIST:
         return NANOARROW_TYPE_STRING;
+      case NANOARROW_TYPE_BINARY:
+      case NANOARROW_TYPE_LARGE_BINARY:
+      case NANOARROW_TYPE_FIXED_SIZE_BINARY:
+        return NANOARROW_TYPE_BINARY;
       default:
         return ingest_type;
     }
@@ -149,7 +159,11 @@ class SnowflakeQuirks : public adbc_validation::DriverQuirks {
   bool supports_dynamic_parameter_binding() const override { return true; }
   bool supports_error_on_incompatible_schema() const override { return false; }
   bool ddl_implicit_commit_txn() const override { return true; }
+  bool supports_ingest_view_types() const override { return false; }
+  bool supports_ingest_float16() const override { return false; }
+
   std::string db_schema() const override { return schema_; }
+  std::string catalog() const override { return "ADBC_TESTING"; }
 
   const char* uri_;
   bool skip_{false};

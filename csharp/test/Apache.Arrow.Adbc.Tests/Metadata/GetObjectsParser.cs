@@ -30,10 +30,9 @@ namespace Apache.Arrow.Adbc.Tests.Metadata
         /// Parses a <see cref="RecordBatch"/> from a GetObjects call for the <see cref="AdbcCatalog"/>.
         /// </summary>
         /// <param name="recordBatch"></param>
-        /// <param name="databaseName"></param>
         /// <param name="schemaName"></param>
         /// <returns></returns>
-        public static List<AdbcCatalog> ParseCatalog(RecordBatch recordBatch, string? databaseName, string? schemaName)
+        public static List<AdbcCatalog> ParseCatalog(RecordBatch recordBatch, string? schemaName)
         {
             StringArray catalogNameArray = (StringArray)recordBatch.Column("catalog_name");
             ListArray dbSchemaArray = (ListArray)recordBatch.Column("catalog_db_schemas");
@@ -157,9 +156,14 @@ namespace Apache.Arrow.Adbc.Tests.Metadata
         {
             if (constraintsArray == null) return null;
 
+            // constraint details may not be loaded correctly if the depth wasn't Columns
+            int fieldCount = constraintsArray?.Fields?.Count ?? 0;
+            if (fieldCount == 0)
+                return null;
+
             List<AdbcConstraint> constraints = new List<AdbcConstraint>();
 
-            StringArray name = (StringArray)constraintsArray.Fields[StandardSchemas.ConstraintSchema.FindIndexOrThrow("constraint_name")]; // constraint_name | utf8
+            StringArray name = (StringArray)constraintsArray!.Fields[StandardSchemas.ConstraintSchema.FindIndexOrThrow("constraint_name")]; // constraint_name | utf8
             StringArray type = (StringArray)constraintsArray.Fields[StandardSchemas.ConstraintSchema.FindIndexOrThrow("constraint_type")]; //	constraint_type | utf8 not null
             ListArray columnNames = (ListArray)constraintsArray.Fields[StandardSchemas.ConstraintSchema.FindIndexOrThrow("constraint_column_names")]; //	constraint_column_names | list<utf8> not null
             ListArray columnUsages = (ListArray)constraintsArray.Fields[StandardSchemas.ConstraintSchema.FindIndexOrThrow("constraint_column_usage")]; //	constraint_column_usage | list<USAGE_SCHEMA>

@@ -19,9 +19,9 @@
 #
 
 # Requirements
-# - Ruby >= 2.3
+# - Ruby >= 3.2
 # - Maven >= 3.3.9
-# - JDK >=7
+# - JDK >= 11
 # - gcc >= 4.8
 # - Go >= 1.21
 # - Docker
@@ -246,48 +246,45 @@ install_dotnet() {
     return 0
   fi
 
-  show_info "Ensuring that .NET is installed..."
+  if command -v dotnet; then
+    show_info "Found $(dotnet --version) at $(which dotnet)"
 
-  if dotnet --version | grep 8\.0 > /dev/null 2>&1; then
-    local csharp_bin=$(dirname $(which dotnet))
-    show_info "Found C# at $(which csharp) (.NET $(dotnet --version))"
-  else
-    if which dotnet > /dev/null 2>&1; then
-      show_info "dotnet found but it is the wrong version and will be ignored."
+    if dotnet --version | grep --quiet --fixed-string 8.0; then
+        local csharp_bin=$(dirname $(which dotnet))
+        show_info "Found C# at $(which csharp) (.NET $(dotnet --version))"
+        DOTNET_ALREADY_INSTALLED=1
+        return 0
     fi
-    local csharp_bin=${ARROW_TMPDIR}/csharp/bin
-    local dotnet_version=8.0.204
-    local dotnet_platform=
-    case "$(uname)" in
+  fi
+
+  show_info "dotnet found but it is the wrong version or dotnet not found"
+
+  local csharp_bin=${ARROW_TMPDIR}/csharp/bin
+  local dotnet_version=8.0.204
+  local dotnet_platform=
+  case "$(uname)" in
       Linux)
-        dotnet_platform=linux
-        ;;
+          dotnet_platform=linux
+          ;;
       Darwin)
-        dotnet_platform=macos
-        ;;
-    esac
-    local dotnet_download_thank_you_url=https://dotnet.microsoft.com/download/thank-you/dotnet-sdk-${dotnet_version}-${dotnet_platform}-x64-binaries
-    local dotnet_download_url=$( \
-      curl -sL ${dotnet_download_thank_you_url} | \
-        grep 'directLink' | \
-        grep -E -o 'https://download[^"]+' | \
-        sed -n 2p)
-    mkdir -p ${csharp_bin}
-    curl -sL ${dotnet_download_url} | \
+          dotnet_platform=macos
+          ;;
+  esac
+  local dotnet_download_thank_you_url=https://dotnet.microsoft.com/download/thank-you/dotnet-sdk-${dotnet_version}-${dotnet_platform}-x64-binaries
+  show_info "Getting .NET download URL from ${dotnet_download_thank_you_url}"
+  local dotnet_download_url=$(curl -sL ${dotnet_download_thank_you_url} | \
+                                  grep 'recordManualDownload' | \
+                                  grep -E -o 'https://builds.dotnet[^"]+')
+  if [ -z "${dotnet_download_url}" ]; then
+    echo "Failed to get .NET download URL from ${dotnet_download_thank_you_url}"
+    exit 1
+  fi
+  show_info "Downloading .NET from ${dotnet_download_url}"
+  mkdir -p ${csharp_bin}
+  curl -sL ${dotnet_download_url} | \
       tar xzf - -C ${csharp_bin}
-    PATH=${csharp_bin}:${PATH}
-    show_info "Installed C# at $(which csharp) (.NET $(dotnet --version))"
-  fi
-
-  # Ensure to have sourcelink installed
-  if ! dotnet tool list | grep sourcelink > /dev/null 2>&1; then
-    dotnet new tool-manifest
-    dotnet tool install --local sourcelink
-    PATH=${csharp_bin}:${PATH}
-    if ! dotnet tool run sourcelink --help > /dev/null 2>&1; then
-      export DOTNET_ROOT=${csharp_bin}
-    fi
-  fi
+  PATH=${csharp_bin}:${PATH}
+  show_info "Installed C# at $(which csharp) (.NET $(dotnet --version))"
 
   DOTNET_ALREADY_INSTALLED=1
 }
@@ -306,7 +303,19 @@ install_go() {
     return 0
   fi
 
-  local version=1.21.8
+  local prefix=${ARROW_TMPDIR}/go
+  mkdir -p $prefix
+
+  if [ -f "${prefix}/go/bin/go" ]; then
+    export GOROOT=${prefix}/go
+    export GOPATH=${prefix}/gopath
+    export PATH=$GOROOT/bin:$GOPATH/bin:$PATH
+    show_info "Found $(go version) at ${prefix}/go/bin/go"
+    GO_ALREADY_INSTALLED=1
+    return 0
+  fi
+
+  local version=1.24.2
   show_info "Installing go version ${version}..."
 
   local arch="$(uname -m)"
@@ -325,8 +334,6 @@ install_go() {
   local archive="go${version}.${os}-${arch}.tar.gz"
   curl -sLO https://go.dev/dl/$archive
 
-  local prefix=${ARROW_TMPDIR}/go
-  mkdir -p $prefix
   tar -xzf $archive -C $prefix
   rm -f $archive
 
@@ -382,7 +389,7 @@ install_rust() {
 install_conda() {
   # Setup short-lived miniconda for Python and integration tests
   show_info "Ensuring that Conda is installed..."
-  local prefix=$ARROW_TMPDIR/mambaforge
+  local prefix=$ARROW_TMPDIR/miniforge
 
   # Setup miniconda only if the directory doesn't exist yet
   if [ "${CONDA_ALREADY_INSTALLED:-0}" -eq 0 ]; then
@@ -390,7 +397,7 @@ install_conda() {
       show_info "Installing miniconda at ${prefix}..."
       local arch=$(uname -m)
       local platform=$(uname)
-      local url="https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-${platform}-${arch}.sh"
+      local url="https://github.com/conda-forge/miniforge/releases/latest/download/miniforge3-${platform}-${arch}.sh"
       curl -sL -o miniconda.sh $url
       bash miniconda.sh -b -p $prefix
       rm -f miniconda.sh
@@ -516,7 +523,7 @@ test_cpp() {
   maybe_setup_conda \
     --file ci/conda_env_cpp.txt \
     compilers \
-    go=1.21 || exit 1
+    go python || exit 1
 
   if [ "${USE_CONDA}" -gt 0 ]; then
     export CMAKE_PREFIX_PATH="${CONDA_BACKUP_CMAKE_PREFIX_PATH}:${CMAKE_PREFIX_PATH}"
@@ -559,8 +566,9 @@ test_python() {
   show_header "Build and test Python libraries"
 
   # Build and test Python
-  maybe_setup_virtualenv cython duckdb pandas protobuf pyarrow pytest setuptools_scm setuptools importlib_resources || exit 1
-  maybe_setup_conda --file "${ADBC_DIR}/ci/conda_env_python.txt" || exit 1
+  maybe_setup_virtualenv cython duckdb pandas polars protobuf pyarrow pytest setuptools_scm setuptools importlib_resources || exit 1
+  # XXX: pin Python for now since various other packages haven't caught up
+  maybe_setup_conda --file "${ADBC_DIR}/ci/conda_env_python.txt" python=3.12 || exit 1
 
   if [ "${USE_CONDA}" -gt 0 ]; then
     CMAKE_PREFIX_PATH="${CONDA_BACKUP_CMAKE_PREFIX_PATH}:${CMAKE_PREFIX_PATH}"
@@ -645,6 +653,8 @@ test_csharp() {
   maybe_setup_dotnet
   maybe_setup_conda dotnet || exit 1
 
+  export DOTNET_ROLL_FORWARD=LatestMajor
+
   "${ADBC_DIR}/ci/scripts/csharp_build.sh" "${ADBC_SOURCE_DIR}"
   "${ADBC_DIR}/ci/scripts/csharp_test.sh" "${ADBC_SOURCE_DIR}"
 }
@@ -669,7 +679,7 @@ test_go() {
   # apache/arrow-adbc#517: `go build` calls git. Don't assume system
   # has git; even if it's there, go_build.sh sets DYLD_LIBRARY_PATH
   # which can interfere with system git.
-  maybe_setup_conda compilers git go=1.21 || exit 1
+  maybe_setup_conda compilers git go || exit 1
 
   if [ "${USE_CONDA}" -gt 0 ]; then
     # The CMake setup forces RPATH to be the Conda prefix
@@ -690,6 +700,11 @@ test_rust() {
   maybe_setup_conda rust || exit 1
 
   # We expect the C++ libraries to exist.
+  export ADBC_SNOWFLAKE_GO_LIB_DIR="${CPP_INSTALL_PREFIX}/lib"
+  # XXX(https://github.com/apache/arrow-adbc/issues/3288)
+  if [[ -n "${CC}" ]]; then
+      export RUSTDOCFLAGS="-Clinker=${CC}"
+  fi
   "${ADBC_DIR}/ci/scripts/rust_build.sh" "${ADBC_SOURCE_DIR}"
   "${ADBC_DIR}/ci/scripts/rust_test.sh" "${ADBC_SOURCE_DIR}" "${CPP_INSTALL_PREFIX}"
 }
@@ -825,7 +840,7 @@ test_linux_wheels() {
     local arch="x86_64"
   fi
 
-  local python_versions="${TEST_PYTHON_VERSIONS:-3.9 3.10 3.11}"
+  local python_versions="${TEST_PYTHON_VERSIONS:-3.9 3.10 3.11 3.12 3.13}"
 
   for python in ${python_versions}; do
     local pyver=${python/m}
@@ -847,7 +862,7 @@ test_macos_wheels() {
     local platform_tags="x86_64"
   fi
 
-  local python_versions="${TEST_PYTHON_VERSIONS:-3.9 3.10 3.11}"
+  local python_versions="${TEST_PYTHON_VERSIONS:-3.9 3.10 3.11 3.12 3.13}"
 
   # verify arch-native wheels inside an arch-native conda environment
   for python in ${python_versions}; do
@@ -939,7 +954,7 @@ test_jars() {
 # Automatically test if its activated by a dependent
 TEST_CPP=$((${TEST_CPP} + ${TEST_GO} + ${TEST_GLIB} + ${TEST_PYTHON} + ${TEST_RUST}))
 
-# Execute tests in a conda enviroment
+# Execute tests in a conda environment
 : ${USE_CONDA:=0}
 
 TEST_SUCCESS=no

@@ -25,57 +25,44 @@ Driver Implementation Status
              details, see `GH-1841
              <https://github.com/apache/arrow-adbc/issues/1841>`_.
 
-Implementation Status
-=====================
+.. note::
+
+   Drivers that support C/C++ can also be used from C#, GLib, Go, Python, R,
+   Ruby, and Rust, regardless of their implementation language.
+
+.. _driver-status:
+
+Driver Status
+=============
 
 **Experimental** drivers are not feature-complete and the implementation is still progressing.
 **Beta** drivers are (mostly) feature-complete but have only been available for a short time.
 **Stable** drivers are (mostly) feature-complete (as much as possible for the underlying database) and have been available/tested for a while.
 
-.. list-table::
-   :header-rows: 1
+Feature Support
+===============
 
-   * - Driver
-     - Supported Languages [#supported-languages]_
-     - Implementation Language
-     - Status
+.. adbc_driver_status_table::
 
-   * - BigQuery
-     - C#
-     - C#
-     - Experimental
+   ../../../c/driver/bigquery/README.md
+   ../../../csharp/src/Drivers/Apache/Hive2/README.md
+   ../../../csharp/src/Drivers/Apache/Impala/README.md
+   ../../../csharp/src/Drivers/Apache/Spark/README.md
+   ../../../csharp/src/Drivers/BigQuery/readme.md
+   ../../../csharp/src/Drivers/Databricks/readme.md
+   ../../../csharp/src/Drivers/FlightSql/README.md
+   ../../../java/driver/flight-sql/README.md
+   ../../../rust/driver/datafusion/README.md
+   ./duckdb => ../../../c/integration/duckdb/README.md [#duckdb]
+   ./flight_sql => ../../../c/driver/flightsql/README.md
+   ./jdbc => ../../../java/driver/jdbc/README.md
+   ./postgresql => ../../../c/driver/postgresql/README.md
+   ./snowflake => ../../../c/driver/snowflake/README.md
+   ./sqlite => ../../../c/driver/sqlite/README.md
 
-   * - Flight SQL (Go)
-     - C, Go
-     - Go
-     - Stable
-
-   * - Flight SQL (Java)
-     - Java
-     - Java
-     - Experimental
-
-   * - JDBC
-     - Java
-     - Java
-     - Experimental
-
-   * - PostgreSQL
-     - C
-     - C++
-     - Stable
-
-   * - SQLite
-     - C
-     - C
-     - Stable
-
-   * - Snowflake
-     - C, Go
-     - Go
-     - Stable
-
-.. [#supported-languages] C drivers are usable from Go, Python, and Ruby as well.
+.. [#duckdb] DuckDB is developed and provided by a third party.  See the
+             `DuckDB documentation
+             <https://duckdb.org/docs/stable/clients/adbc.html>`_ for details.
 
 Feature Support
 ===============
@@ -88,14 +75,14 @@ Bulk Ingestion
     Does the driver support :ref:`bulk ingestion of data <specification-bulk-ingestion>` (creating or appending to a database table from an Arrow table)?
 
 Database Metadata
-    Does the driver support functions like :cpp:func:`AdbcConnectionGetObjects` that get metadata about the database catalog, etc.?
+    Does the driver support functions like :c:func:`AdbcConnectionGetObjects` that get metadata about the database catalog, etc.?
 
 Parameterized Queries
     Does the driver support binding query parameters?
 
 Partitioned Data
     Being able to read individual chunks of a (generally distributed)
-    result set (:cpp:func:`AdbcStatementExecutePartitions`).
+    result set (:c:func:`AdbcStatementExecutePartitions`).
 
 Prepared Statements
     Does the driver support binding query parameters?

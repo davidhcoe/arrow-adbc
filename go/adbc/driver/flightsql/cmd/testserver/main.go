@@ -32,12 +32,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/apache/arrow/go/v18/arrow/flight/flightsql"
-	"github.com/apache/arrow/go/v18/arrow/flight/flightsql/schema_ref"
-	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/flight"
+	"github.com/apache/arrow-go/v18/arrow/flight/flightsql"
+	"github.com/apache/arrow-go/v18/arrow/flight/flightsql/schema_ref"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -300,7 +300,7 @@ func (srv *ExampleServer) DoGetPreparedStatement(ctx context.Context, cmd flight
 	case "forever":
 		ch := make(chan flight.StreamChunk)
 		schema = arrow.NewSchema([]arrow.Field{{Name: "ints", Type: arrow.PrimitiveTypes.Int32, Nullable: true}}, nil)
-		var rec arrow.Record
+		var rec arrow.RecordBatch
 		rec, _, err = array.RecordFromJSON(memory.DefaultAllocator, schema, strings.NewReader(`[{"a": 5}]`))
 		go func() {
 			// wait for client cancel
@@ -342,7 +342,7 @@ func (srv *ExampleServer) DoGetPreparedStatement(ctx context.Context, cmd flight
 		}
 		srv.headers = make([]RecordedHeader, 0)
 
-		rec := array.NewRecord(recordedHeadersSchema, []arrow.Array{
+		rec := array.NewRecordBatch(recordedHeadersSchema, []arrow.Array{
 			methods.NewArray(),
 			headers.NewArray(),
 			values.NewArray(),
@@ -452,7 +452,7 @@ func (srv *ExampleServer) DoGetCatalogs(ctx context.Context) (*arrow.Schema, <-c
 	}
 	defer catalogs.Release()
 
-	batch := array.NewRecord(schema, []arrow.Array{catalogs}, 1)
+	batch := array.NewRecordBatch(schema, []arrow.Array{catalogs}, 1)
 	ch <- flight.StreamChunk{Data: batch}
 	close(ch)
 	return schema, ch, nil
@@ -489,7 +489,7 @@ func (srv *ExampleServer) DoGetDBSchemas(ctx context.Context, req flightsql.GetD
 		}
 		defer dbSchemas.Release()
 
-		batch := array.NewRecord(schema, []arrow.Array{catalogs, dbSchemas}, 1)
+		batch := array.NewRecordBatch(schema, []arrow.Array{catalogs, dbSchemas}, 1)
 		ch <- flight.StreamChunk{Data: batch}
 	}
 	close(ch)

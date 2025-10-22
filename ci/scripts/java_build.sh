@@ -18,6 +18,8 @@
 
 set -ex
 
+: ${BUILD_JNI:=OFF}
+
 main() {
     local -r source_dir=${1}
     local -r dist_dir=${2}
@@ -32,15 +34,17 @@ main() {
              -delete
     fi
 
+    local maven_profiles="apache-release"
+    if [[ "${BUILD_JNI}" == "ON" ]]; then
+        maven_profiles="${maven_profiles},jni"
+        echo "(*) Building JNI libraries"
+    fi
+
     echo "=== Build ==="
     pushd ${source_dir}/java
     mvn -B clean \
         install \
-        assembly:single \
-        source:jar \
-        javadoc:jar \
-        -Papache-release \
-        -DdescriptorId=source-release \
+        -P"${maven_profiles}" \
         -T 2C \
         -DskipTests \
         -Dgpg.skip

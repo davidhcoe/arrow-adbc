@@ -19,7 +19,7 @@
 SQLite Driver
 =============
 
-**Available for:** C/C++, GLib/Ruby, Go, Python, R
+.. adbc_driver_status:: ../../../c/driver/sqlite/README.md
 
 The SQLite driver provides access to SQLite databases.
 
@@ -30,50 +30,13 @@ not received attention to optimization.
 Installation
 ============
 
-.. tab-set::
-
-   .. tab-item:: C/C++
-      :sync: cpp
-
-      For conda-forge users:
-
-      .. code-block:: shell
-
-         mamba install libadbc-driver-sqlite
-
-   .. tab-item:: Go
-      :sync: go
-
-      Install the C/C++ package and use the Go driver manager.
-      Requires CGO.
-
-      .. code-block:: shell
-
-         go get github.com/apache/arrow-adbc/go/adbc/drivermgr
-
-   .. tab-item:: Python
-      :sync: python
-
-      .. code-block:: shell
-
-         # For conda-forge
-         mamba install adbc-driver-sqlite
-
-         # For pip
-         pip install adbc_driver_sqlite
-
-   .. tab-item:: R
-      :sync: r
-
-      .. code-block:: r
-
-         install.packages("adbcsqlite")
+.. adbc_driver_installation:: ../../../c/driver/sqlite/README.md
 
 Usage
 =====
 
 To connect to a database, supply the "uri" parameter when constructing
-the :cpp:class:`AdbcDatabase`.  This should be a filename or `URI
+the :c:struct:`AdbcDatabase`.  This should be a filename or `URI
 filename <https://www.sqlite.org/c3ref/open.html#urifilenamesinsqlite3open>`_.
 If omitted, it will default to an in-memory database, but one that is
 shared across all connections.
@@ -103,6 +66,8 @@ shared across all connections.
 
          with adbc_driver_sqlite.dbapi.connect() as conn:
              pass
+
+      For more examples, see :doc:`../python/recipe/sqlite`.
 
    .. tab-item:: R
       :sync: r
@@ -177,7 +142,7 @@ To load an extension, three things are necessary:
 3. Set the entrypoint
 
 These options can only be set after the connection is fully initialized with
-:cpp:func:`AdbcConnectionInit`.
+:c:func:`AdbcConnectionInit`.
 
 Options
 ~~~~~~~
@@ -277,6 +242,6 @@ Driver-specific options:
 Software Versions
 =================
 
-For Python wheels, the shipped version of SQLite is 3.40.1.  For conda-forge
+For Python wheels, the shipped version of SQLite is 3.50.4.  For conda-forge
 packages, the version of sqlite is the same as the version of sqlite in your
 Conda environment.

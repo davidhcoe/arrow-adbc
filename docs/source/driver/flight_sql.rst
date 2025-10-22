@@ -19,7 +19,7 @@
 Flight SQL Driver
 =================
 
-**Available for:** C/C++, GLib/Ruby, Go, Java, Python, R
+.. adbc_driver_status:: ../../../c/driver/flightsql/README.md
 
 The Flight SQL Driver provides access to any database implementing a
 :doc:`arrow:format/FlightSql` compatible endpoint.
@@ -27,62 +27,13 @@ The Flight SQL Driver provides access to any database implementing a
 Installation
 ============
 
-.. tab-set::
-
-   .. tab-item:: C/C++
-      :sync: cpp
-
-      For conda-forge users:
-
-      .. code-block:: shell
-
-         mamba install libadbc-driver-flightsql
-
-   .. tab-item:: Go
-      :sync: go
-
-      .. code-block:: shell
-
-         go get github.com/apache/arrow-adbc/go/adbc
-
-   .. tab-item:: Java
-      :sync: java
-
-      Add a dependency on ``org.apache.arrow.adbc:adbc-driver-flight-sql``.
-
-      For Maven users:
-
-      .. code-block:: xml
-
-         <dependency>
-           <groupId>org.apache.arrow.adbc</groupId>
-           <artifactId>adbc-driver-flight-sql</artifactId>
-         </dependency>
-
-   .. tab-item:: Python
-      :sync: python
-
-      .. code-block:: shell
-
-         # For conda-forge
-         mamba install adbc-driver-flightsql
-
-         # For pip
-         pip install adbc_driver_flightsql
-
-   .. tab-item:: R
-      :sync: r
-
-      .. code-block:: r
-
-         # install.packages("pak")
-         pak::pak("apache/arrow-adbc/r/adbcflightsql")
+.. adbc_driver_installation:: ../../../c/driver/flightsql/README.md
 
 Usage
 =====
 
 To connect to a database, supply the "uri" parameter when constructing
-the :cpp:class:`AdbcDatabase`.
+the :c:struct:`AdbcDatabase`.
 
 .. tab-set::
 
@@ -128,40 +79,7 @@ the :cpp:class:`AdbcDatabase`.
    .. tab-item:: Go
       :sync: go
 
-      .. code-block:: go
-
-         import (
-            "context"
-
-            "github.com/apache/arrow-adbc/go/adbc"
-            "github.com/apache/arrow-adbc/go/adbc/driver/flightsql"
-         )
-
-         var headers = map[string]string{"foo": "bar"}
-
-         func main() {
-            options := map[string]string{
-                adbc.OptionKeyURI: "grpc+tls://localhost:8080",
-                flightsql.OptionSSLSkipVerify: adbc.OptionValueEnabled,
-            }
-
-            for k, v := range headers {
-                options[flightsql.OptionRPCCallHeaderPrefix + k] = v
-            }
-
-            var drv flightsql.Driver
-            db, err := drv.NewDatabase(options)
-            if err != nil {
-                // do something with the error
-            }
-            defer db.Close()
-
-            cnxn, err := db.Open(context.Background())
-            if err != nil {
-                // handle the error
-            }
-            defer cnxn.Close()
-         }
+      .. recipe:: ../../../go/adbc/driver/flightsql/example_usage_test.go
 
 Supported Features
 ==================
@@ -183,7 +101,7 @@ few optional authentication schemes:
 - An HTTP-style scheme mimicking the Arrow Flight SQL JDBC driver.
 
   Set the options ``username`` and ``password`` on the
-  :cpp:class:`AdbcDatabase`.  Alternatively, set the option
+  :c:struct:`AdbcDatabase`.  Alternatively, set the option
   ``adbc.flight.sql.authorization_header`` for full control.
 
   The client provides credentials sending an ``authorization`` from
@@ -191,6 +109,12 @@ few optional authentication schemes:
   ``authorization`` header on the first request.  The value of this
   header will then be sent back as the ``authorization`` header on all
   future requests.
+
+- OAuth 2.0 authentication flows.
+
+  The client provides :ref:`configurations <oauth-configurations>` to allow client application to obtain access
+  tokens from an authorization server. The obtained token is then used
+  on the ``authorization`` header on all future requests.
 
 Bulk Ingestion
 --------------
@@ -250,7 +174,7 @@ The options used for creating the Flight RPC client can be customized.
 ``adbc.flight.sql.client_option.with_max_msg_size``
     The maximum message size to accept from the server.  The driver
     defaults to 16 MiB since Flight services tend to return larger
-    reponse payloads.  Should be a positive integer number of bytes.
+    response payloads.  Should be a positive integer number of bytes.
 
     Python: :attr:`adbc_driver_flightsql.DatabaseOptions.WITH_MAX_MSG_SIZE`
 
@@ -272,16 +196,73 @@ Custom Call Headers
 -------------------
 
 Custom HTTP headers can be attached to requests via options that apply
-to :cpp:class:`AdbcDatabase`, :cpp:class:`AdbcConnection`, and
-:cpp:class:`AdbcStatement`.
+to :c:struct:`AdbcDatabase`, :c:struct:`AdbcConnection`, and
+:c:struct:`AdbcStatement`.
 
 ``adbc.flight.sql.rpc.call_header.<HEADER NAME>``
   Add the header ``<HEADER NAME>`` to outgoing requests with the given
   value.
 
-    Python: :attr:`adbc_driver_flightsql.ConnectionOptions.RPC_CALL_HEADER_PREFIX`
+  Python: :attr:`adbc_driver_flightsql.ConnectionOptions.RPC_CALL_HEADER_PREFIX`
 
   .. warning:: Header names must be in all lowercase.
+
+
+OAuth 2.0 Options
+-----------------------
+.. _oauth-configurations:
+
+Supported configurations to obtain tokens using OAuth 2.0 authentication flows.
+
+``adbc.flight.sql.oauth.flow``
+  Specifies the OAuth 2.0 flow type to use. Possible values: ``client_credentials``, ``token_exchange``
+
+``adbc.flight.sql.oauth.client_id``
+  Unique identifier issued to the client application by the authorization server
+
+``adbc.flight.sql.oauth.client_secret``
+  Secret associated to the client_id. Used to authenticate the client application to the authorization server
+
+``adbc.flight.sql.oauth.token_uri``
+  The endpoint URL where the client application requests tokens from the authorization server
+
+``adbc.flight.sql.oauth.scope``
+  Space-separated list of permissions that the client is requesting access to (e.g ``"read.all offline_access"``)
+
+``adbc.flight.sql.oauth.exchange.subject_token``
+  The security token that the client application wants to exchange
+
+``adbc.flight.sql.oauth.exchange.subject_token_type``
+  Identifier for the type of the subject token.
+  Check list below for supported token types.
+
+``adbc.flight.sql.oauth.exchange.actor_token``
+  A security token that represents the identity of the acting party
+
+``adbc.flight.sql.oauth.exchange.actor_token_type``
+  Identifier for the type of the actor token.
+  Check list below for supported token types.
+``adbc.flight.sql.oauth.exchange.aud``
+  The intended audience for the requested security token
+
+``adbc.flight.sql.oauth.exchange.resource``
+  The resource server where the client intends to use the requested security token
+
+``adbc.flight.sql.oauth.exchange.scope``
+  Specific permissions requested for the new token
+
+``adbc.flight.sql.oauth.exchange.requested_token_type``
+  The type of token the client wants to receive in exchange.
+  Check list below for supported token types.
+
+
+Supported token types:
+  - ``urn:ietf:params:oauth:token-type:access_token``
+  - ``urn:ietf:params:oauth:token-type:refresh_token``
+  - ``urn:ietf:params:oauth:token-type:id_token``
+  - ``urn:ietf:params:oauth:token-type:saml1``
+  - ``urn:ietf:params:oauth:token-type:saml2``
+  - ``urn:ietf:params:oauth:token-type:jwt``
 
 Distributed Result Sets
 -----------------------
@@ -301,7 +282,7 @@ All partitions are fetched in parallel.  A limited number of batches
 are queued per partition.  Data is returned to the client in the order
 of the partitions.
 
-Some behavior can be configured on the :cpp:class:`AdbcStatement`:
+Some behavior can be configured on the :c:struct:`AdbcStatement`:
 
 ``adbc.rpc.result_queue_size``
     The number of batches to queue per partition.  Defaults to 5.
@@ -313,19 +294,19 @@ Incremental Execution
 
 By setting :c:macro:`ADBC_STATEMENT_OPTION_INCREMENTAL`, you can use
 nonblocking execution with this driver.  This changes the behavior of
-:func:`AdbcStatementExecutePartitions` only.  When enabled, ExecutePartitions
-will return every time there are new partitions (in Flight SQL terms, when
-there are new FlightEndpoints) from the server, instead of blocking until the
-query is complete.
+:c:func:`AdbcStatementExecutePartitions` only.  When enabled,
+ExecutePartitions will return every time there are new partitions (in Flight
+SQL terms, when there are new FlightEndpoints) from the server, instead of
+blocking until the query is complete.
 
-Some behavior can be configured on the :cpp:class:`AdbcStatement`:
+Some behavior can be configured on the :c:struct:`AdbcStatement`:
 
 ``adbc.flight.sql.statement.exec.last_flight_info``
     Get the serialized bytes for the most recent ``FlightInfo`` returned by
     the service.  This is a low-level option intended for advanced usage.  It
     is most useful when incremental execution is enabled, for inspecting the
     latest server response without waiting for
-    :func:`AdbcStatementExecutePartitions` to return.
+    :c:func:`AdbcStatementExecutePartitions` to return.
 
     Python: :attr:`adbc_driver_flightsql.StatementOptions.LAST_FLIGHT_INFO`
 
@@ -333,7 +314,7 @@ Metadata
 --------
 
 The driver currently will not populate column constraint info (foreign
-keys, primary keys, etc.) in :cpp:func:`AdbcConnectionGetObjects`.
+keys, primary keys, etc.) in :c:func:`AdbcConnectionGetObjects`.
 Also, catalog filters are evaluated as simple string matches, not
 ``LIKE``-style patterns.
 
@@ -390,7 +371,7 @@ Timeouts
 --------
 
 By default, timeouts are not used for RPC calls.  They can be set via
-special options on :cpp:class:`AdbcConnection`.  In general, it is
+special options on :c:struct:`AdbcConnection`.  In general, it is
 best practice to set timeouts to avoid unexpectedly getting stuck.
 The options are as follows:
 
@@ -409,7 +390,7 @@ The options are as follows:
     calls.
 
     For example, this controls the timeout of the underlying Flight
-    calls that implement :func:`AdbcStatementExecuteQuery`.
+    calls that implement :c:func:`AdbcStatementExecuteQuery`.
 
     Python: :attr:`adbc_driver_flightsql.ConnectionOptions.TIMEOUT_QUERY`
 
@@ -422,7 +403,7 @@ The options are as follows:
 
     Python: :attr:`adbc_driver_flightsql.ConnectionOptions.TIMEOUT_UPDATE`
 
-There is also a timeout that is set on the :cpp:class:`AdbcDatabase`:
+There is also a timeout that is set on the :c:struct:`AdbcDatabase`:
 
 ``adbc.flight.sql.rpc.timeout_seconds.connect``
     A timeout (in floating-point seconds) for establishing a connection.  The
@@ -434,6 +415,6 @@ Transactions
 The driver supports transactions.  It will first check the server's
 SqlInfo to determine whether this is supported.  Otherwise,
 transaction-related ADBC APIs will return
-:c:type:`ADBC_STATUS_NOT_IMPLEMENTED`.
+:c:macro:`ADBC_STATUS_NOT_IMPLEMENTED`.
 
 .. _DBAPI 2.0: https://peps.python.org/pep-0249/

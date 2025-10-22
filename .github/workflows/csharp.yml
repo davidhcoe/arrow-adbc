@@ -36,6 +36,11 @@ concurrency:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # 'bash' will expand to -eo pipefail
+    shell: bash
+
 jobs:
   csharp:
     name: "C# ${{ matrix.os }} ${{ matrix.dotnet }}"
@@ -46,20 +51,17 @@ jobs:
       fail-fast: false
       matrix:
         dotnet: ['8.0.x']
-        os: [ubuntu-latest, windows-2019, macos-13, macos-latest]
+        os: [ubuntu-latest, windows-2022, macos-15-intel, macos-latest]
     steps:
       - name: Install C#
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ matrix.dotnet }}
       - name: Checkout ADBC
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           submodules: recursive
-      - name: Install Source Link
-        shell: bash
-        run: dotnet tool install --global sourcelink
       - name: Build
         shell: bash
         run: ci/scripts/csharp_build.sh $(pwd)

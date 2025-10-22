@@ -19,17 +19,18 @@ package flightsql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"testing"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/arrow/flight"
-	"github.com/apache/arrow/go/v18/arrow/flight/flightsql"
-	"github.com/apache/arrow/go/v18/arrow/ipc"
-	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/flight"
+	"github.com/apache/arrow-go/v18/arrow/flight/flightsql"
+	"github.com/apache/arrow-go/v18/arrow/ipc"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/bluele/gcache"
 	"github.com/stretchr/testify/suite"
 	"google.golang.org/grpc"
@@ -49,7 +50,7 @@ type testFlightService struct {
 	failureCount int
 }
 
-func (f *testFlightService) DoGet(request *flight.Ticket, stream flight.FlightService_DoGetServer) error {
+func (f *testFlightService) DoGet(request *flight.Ticket, stream flight.FlightService_DoGetServer) (err error) {
 	// Crude way to make requests fail until retried enough times
 	if f.failureCount > 0 {
 		f.failureCount--
@@ -58,7 +59,9 @@ func (f *testFlightService) DoGet(request *flight.Ticket, stream flight.FlightSe
 
 	schema := orderingSchema()
 	wr := flight.NewRecordWriter(stream, ipc.WithSchema(schema))
-	defer wr.Close()
+	defer func() {
+		err = errors.Join(err, wr.Close())
+	}()
 
 	builder := array.NewRecordBuilder(f.alloc, schema)
 	defer builder.Release()
@@ -70,7 +73,7 @@ func (f *testFlightService) DoGet(request *flight.Ticket, stream flight.FlightSe
 		epIndex.Append(int8(request.Ticket[0]))
 		batchIndex.Append(idx)
 
-		rec := builder.NewRecord()
+		rec := builder.NewRecordBatch()
 		defer rec.Release()
 		if err := wr.Write(rec); err != nil {
 			return err
@@ -133,12 +136,12 @@ func (suite *RecordReaderTests) SetupSuite() {
 		}).
 		EvictedFunc(func(_, client interface{}) {
 			conn := client.(*flightsql.Client)
-			conn.Close()
+			suite.NoError(conn.Close())
 		}).Build()
 }
 
 func (suite *RecordReaderTests) TearDownSuite() {
-	suite.cl.Close()
+	suite.NoError(suite.cl.Close())
 	suite.clCache.Purge()
 	suite.server.Shutdown()
 	suite.alloc.AssertSize(suite.T(), 0)
@@ -343,7 +346,7 @@ func (suite *RecordReaderTests) TestOrdering() {
 	for epIdx := int8(0); epIdx < 4; epIdx++ {
 		for batchIdx := int8(0); batchIdx < 4; batchIdx++ {
 			suite.True(reader.Next())
-			rec := reader.Record()
+			rec := reader.RecordBatch()
 			// don't need to manually release this record because we never
 			// call retain. Each call to Next releases the previous record
 

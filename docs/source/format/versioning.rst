@@ -30,13 +30,13 @@ Of course, we can never add/remove/change struct members, and we can
 never change the signatures of existing functions.
 
 In ADBC 1.1.0, it was decided this would only apply to the "public"
-API, and not the driver-internal API (:cpp:class:`AdbcDriver`).  New
+API, and not the driver-internal API (:c:struct:`AdbcDriver`).  New
 members were added to this struct in the 1.1.0 revision.
 Compatibility is handled as follows:
 
-The driver entrypoint, :cpp:type:`AdbcDriverInitFunc`, is given a
+The driver entrypoint, :c:type:`AdbcDriverInitFunc`, is given a
 version and a pointer to a table of function pointers to initialize
-(the :cpp:class:`AdbcDriver`).  The size of the table will depend on
+(the :c:struct:`AdbcDriver`).  The size of the table will depend on
 the version; when a new version of ADBC is accepted, then a new table
 of function pointers may be expanded.  For each version, the driver
 knows the expected size of the table, and must not read/write fields
@@ -46,7 +46,7 @@ scenarios are possible:
 - An updated client application uses an old driver library.  The
   client will pass a `version` field greater than what the driver
   recognizes, so the driver will return
-  :c:type:`ADBC_STATUS_NOT_IMPLEMENTED` and the client can decide
+  :c:macro:`ADBC_STATUS_NOT_IMPLEMENTED` and the client can decide
   whether to abort or retry with an older version.
 - An old client application uses an updated driver library.  The
   client will pass a ``version`` lower than what the driver
@@ -74,3 +74,15 @@ Similarly, this documentation describes the ADBC API standard version
 options or API functions are defined), the next version would be
 1.2.0.  If incompatible changes are made (e.g. changing the signature
 or semantics of a function), the next version would be 2.0.0.
+
+The ADBC :doc:`driver manifest <driver_manifests>` TOML format is
+versioned separately from the ADBC standard and components.  Its
+version is an integer currently set to 1.  This version number may
+optionally be included in the manifest as the value of the
+``manifest_version`` key.  If present, it must be set to 1.  If not
+present, it is assumed to be 1.  The manifest version number must be
+incremented when and only when breaking changes are made to the
+driver manifest format.  In future manifests with a version higher
+than 1, the ``manifest_version`` key will be required.  Current
+driver manager implementations must error upon reading a manifest
+with ``manifest_version`` higher than 1.

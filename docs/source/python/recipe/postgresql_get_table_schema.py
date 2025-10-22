@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# RECIPE CATEGORY: PostgreSQL
+# RECIPE KEYWORDS: get table schema
 # RECIPE STARTS HERE
 
 #: ADBC lets you get the schema of a table as an Arrow schema.
@@ -35,7 +37,7 @@ with conn.cursor() as cur:
 
     cur.execute("CREATE SCHEMA IF NOT EXISTS other_schema")
     cur.execute("DROP TABLE IF EXISTS other_schema.example")
-    cur.execute("CREATE TABLE other_schema.example (strings TEXT, values NUMERIC)")
+    cur.execute("CREATE TABLE other_schema.example (strings TEXT, values INT)")
 
 conn.commit()
 
@@ -62,7 +64,7 @@ assert conn.adbc_get_table_schema(
 ) == pyarrow.schema(
     [
         ("strings", "string"),
-        ("values", "string"),
+        ("values", "int32"),
     ]
 )
 

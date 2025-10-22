@@ -22,16 +22,20 @@
 #include <cstring>
 #include <limits>
 #include <optional>
+#include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include <arrow-adbc/adbc.h>
+#include <arrow-adbc/driver/postgresql.h>
 #include <gtest/gtest-param-test.h>
 #include <gtest/gtest.h>
 #include <nanoarrow/nanoarrow.h>
+#include <nanoarrow/nanoarrow.hpp>
 
 #include "common/options.h"
 #include "common/utils.h"
-#include "database.h"
 #include "validation/adbc_validation.h"
 #include "validation/adbc_validation_util.h"
 
@@ -116,11 +120,24 @@ class PostgresQuirks : public adbc_validation::DriverQuirks {
   ArrowType IngestSelectRoundTripType(ArrowType ingest_type) const override {
     switch (ingest_type) {
       case NANOARROW_TYPE_INT8:
+      case NANOARROW_TYPE_UINT8:
         return NANOARROW_TYPE_INT16;
+      case NANOARROW_TYPE_UINT16:
+        return NANOARROW_TYPE_INT32;
+      case NANOARROW_TYPE_UINT32:
+      case NANOARROW_TYPE_UINT64:
+        return NANOARROW_TYPE_INT64;
+      case NANOARROW_TYPE_HALF_FLOAT:
+        return NANOARROW_TYPE_FLOAT;
       case NANOARROW_TYPE_DURATION:
         return NANOARROW_TYPE_INTERVAL_MONTH_DAY_NANO;
       case NANOARROW_TYPE_LARGE_STRING:
+      case NANOARROW_TYPE_STRING_VIEW:
         return NANOARROW_TYPE_STRING;
+      case NANOARROW_TYPE_LARGE_BINARY:
+      case NANOARROW_TYPE_FIXED_SIZE_BINARY:
+      case NANOARROW_TYPE_BINARY_VIEW:
+        return NANOARROW_TYPE_BINARY;
       case NANOARROW_TYPE_DECIMAL128:
       case NANOARROW_TYPE_DECIMAL256:
         return NANOARROW_TYPE_STRING;
@@ -210,18 +227,20 @@ class PostgresDatabaseTest : public ::testing::Test,
 };
 ADBCV_TEST_DATABASE(PostgresDatabaseTest)
 
-TEST_F(PostgresDatabaseTest, AdbcDriverBackwardsCompatibility) {
-  // XXX: sketchy cast
-  auto* driver = static_cast<struct AdbcDriver*>(malloc(ADBC_DRIVER_1_0_0_SIZE));
-  std::memset(driver, 0, ADBC_DRIVER_1_0_0_SIZE);
+int Canary(const struct AdbcError*) { return 0; }
 
-  ASSERT_THAT(::PostgresqlDriverInit(ADBC_VERSION_1_0_0, driver, &error),
+TEST_F(PostgresDatabaseTest, AdbcDriverBackwardsCompatibility) {
+  struct AdbcDriver driver;
+  std::memset(&driver, 0, ADBC_DRIVER_1_1_0_SIZE);
+  driver.ErrorGetDetailCount = Canary;
+
+  ASSERT_THAT(::AdbcDriverPostgresqlInit(ADBC_VERSION_1_0_0, &driver, &error),
               IsOkStatus(&error));
 
-  ASSERT_THAT(::PostgresqlDriverInit(424242, driver, &error),
-              IsStatus(ADBC_STATUS_NOT_IMPLEMENTED, &error));
+  ASSERT_EQ(Canary, driver.ErrorGetDetailCount);
 
-  free(driver);
+  ASSERT_THAT(::AdbcDriverPostgresqlInit(424242, &driver, &error),
+              IsStatus(ADBC_STATUS_NOT_IMPLEMENTED, &error));
 }
 
 class PostgresConnectionTest : public ::testing::Test,
@@ -325,7 +344,7 @@ TEST_F(PostgresConnectionTest, GetObjectsGetCatalogs) {
   auto catalogs = {"postgres", "template0", "template1"};
   for (auto catalog : catalogs) {
     struct AdbcGetObjectsCatalog* cat =
-        AdbcGetObjectsDataGetCatalogByName(*get_objects_data, catalog);
+        InternalAdbcGetObjectsDataGetCatalogByName(*get_objects_data, catalog);
     ASSERT_NE(cat, nullptr) << "catalog " << catalog << " not found";
   }
 }
@@ -349,7 +368,7 @@ TEST_F(PostgresConnectionTest, GetObjectsGetDbSchemas) {
       << "could not initialize the AdbcGetObjectsData object";
 
   struct AdbcGetObjectsSchema* schema =
-      AdbcGetObjectsDataGetSchemaByName(*get_objects_data, "postgres", "public");
+      InternalAdbcGetObjectsDataGetSchemaByName(*get_objects_data, "postgres", "public");
   ASSERT_NE(schema, nullptr) << "schema public not found";
 }
 
@@ -393,12 +412,12 @@ TEST_F(PostgresConnectionTest, GetObjectsGetAllFindsPrimaryKey) {
   ASSERT_NE(*get_objects_data, nullptr)
       << "could not initialize the AdbcGetObjectsData object";
 
-  struct AdbcGetObjectsTable* table = AdbcGetObjectsDataGetTableByName(
+  struct AdbcGetObjectsTable* table = InternalAdbcGetObjectsDataGetTableByName(
       *get_objects_data, "postgres", "public", "adbc_pkey_test");
   ASSERT_NE(table, nullptr) << "could not find adbc_pkey_test table";
 
   ASSERT_EQ(table->n_table_columns, 2);
-  struct AdbcGetObjectsColumn* column = AdbcGetObjectsDataGetColumnByName(
+  struct AdbcGetObjectsColumn* column = InternalAdbcGetObjectsDataGetColumnByName(
       *get_objects_data, "postgres", "public", "adbc_pkey_test", "id");
   ASSERT_NE(column, nullptr) << "could not find id column on adbc_pkey_test table";
 
@@ -406,8 +425,10 @@ TEST_F(PostgresConnectionTest, GetObjectsGetAllFindsPrimaryKey) {
       << "expected 1 constraint on adbc_pkey_test table, found: "
       << table->n_table_constraints;
 
-  struct AdbcGetObjectsConstraint* constraint = AdbcGetObjectsDataGetConstraintByName(
-      *get_objects_data, "postgres", "public", "adbc_pkey_test", "adbc_pkey_test_pkey");
+  struct AdbcGetObjectsConstraint* constraint =
+      InternalAdbcGetObjectsDataGetConstraintByName(*get_objects_data, "postgres",
+                                                    "public", "adbc_pkey_test",
+                                                    "adbc_pkey_test_pkey");
   ASSERT_NE(constraint, nullptr) << "could not find adbc_pkey_test_pkey constraint";
 
   auto constraint_type = std::string(constraint->constraint_type.data,
@@ -485,7 +506,7 @@ TEST_F(PostgresConnectionTest, GetObjectsGetAllFindsForeignKey) {
   ASSERT_NE(*get_objects_data, nullptr)
       << "could not initialize the AdbcGetInfoData object";
 
-  struct AdbcGetObjectsTable* table = AdbcGetObjectsDataGetTableByName(
+  struct AdbcGetObjectsTable* table = InternalAdbcGetObjectsDataGetTableByName(
       *get_objects_data, "postgres", "public", "adbc_fkey_test");
   ASSERT_NE(table, nullptr) << "could not find adbc_fkey_test table";
   ASSERT_EQ(table->n_table_constraints, 1)
@@ -495,8 +516,9 @@ TEST_F(PostgresConnectionTest, GetObjectsGetAllFindsForeignKey) {
   const std::string version = adbc_validation::GetDriverVendorVersion(&connection);
   const std::string search_name =
       version < "120000" ? "adbc_fkey_test_fid1_fkey" : "adbc_fkey_test_fid1_fid2_fkey";
-  struct AdbcGetObjectsConstraint* constraint = AdbcGetObjectsDataGetConstraintByName(
-      *get_objects_data, "postgres", "public", "adbc_fkey_test", search_name.c_str());
+  struct AdbcGetObjectsConstraint* constraint =
+      InternalAdbcGetObjectsDataGetConstraintByName(
+          *get_objects_data, "postgres", "public", "adbc_fkey_test", search_name.c_str());
   ASSERT_NE(constraint, nullptr) << "could not find " << search_name << " constraint";
 
   auto constraint_type = std::string(constraint->constraint_type.data,
@@ -597,11 +619,11 @@ TEST_F(PostgresConnectionTest, GetObjectsTableTypesFilter) {
   ASSERT_NE(*get_objects_data, nullptr)
       << "could not initialize the AdbcGetInfoData object";
 
-  struct AdbcGetObjectsTable* table = AdbcGetObjectsDataGetTableByName(
+  struct AdbcGetObjectsTable* table = InternalAdbcGetObjectsDataGetTableByName(
       *get_objects_data, "postgres", "public", "adbc_table_types_table_test");
   ASSERT_EQ(table, nullptr) << "unexpected table adbc_table_types_table_test found";
 
-  struct AdbcGetObjectsTable* view = AdbcGetObjectsDataGetTableByName(
+  struct AdbcGetObjectsTable* view = InternalAdbcGetObjectsDataGetTableByName(
       *get_objects_data, "postgres", "public", "adbc_table_types_view_test");
   ASSERT_NE(view, nullptr) << "did not find view adbc_table_types_view_test";
 }
@@ -671,6 +693,44 @@ TEST_F(PostgresConnectionTest, MetadataSetCurrentDbSchema) {
               IsOkStatus(&error));
 
   ASSERT_THAT(AdbcStatementRelease(&statement.value, &error), IsOkStatus(&error));
+}
+
+TEST_F(PostgresConnectionTest, MetadataSetCurrentDbSchemaInit) {
+  // Regression test: setting the schema before Init (which Python does)
+
+  // 1. Create the schema
+  {
+    ASSERT_THAT(AdbcConnectionNew(&connection, &error), IsOkStatus(&error));
+    ASSERT_THAT(AdbcConnectionInit(&connection, &database, &error), IsOkStatus(&error));
+
+    adbc_validation::Handle<struct AdbcStatement> statement;
+    ASSERT_THAT(AdbcStatementNew(&connection, &statement.value, &error),
+                IsOkStatus(&error));
+
+    ASSERT_THAT(
+        AdbcStatementSetSqlQuery(&statement.value,
+                                 "CREATE SCHEMA IF NOT EXISTS regtestschema", &error),
+        IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement.value, nullptr, nullptr, &error),
+                IsOkStatus(&error));
+
+    ASSERT_THAT(AdbcStatementRelease(&statement.value, &error), IsOkStatus(&error));
+    ASSERT_THAT(AdbcConnectionRelease(&connection, &error), IsOkStatus(&error));
+  }
+
+  // 2. Initialize a connection with the schema
+  {
+    ASSERT_THAT(AdbcConnectionNew(&connection, &error), IsOkStatus(&error));
+    ASSERT_THAT(
+        AdbcConnectionSetOption(&connection, ADBC_CONNECTION_OPTION_CURRENT_DB_SCHEMA,
+                                "regtestschema", &error),
+        IsOkStatus(&error));
+    ASSERT_THAT(AdbcConnectionInit(&connection, &database, &error), IsOkStatus(&error));
+
+    ASSERT_THAT(adbc_validation::ConnectionGetOption(
+                    &connection, ADBC_CONNECTION_OPTION_CURRENT_DB_SCHEMA, &error),
+                ::testing::Optional("regtestschema"s));
+  }
 }
 
 TEST_F(PostgresConnectionTest, MetadataGetSchemaCaseSensitiveTable) {
@@ -886,13 +946,8 @@ class PostgresStatementTest : public ::testing::Test,
   void SetUp() override { ASSERT_NO_FATAL_FAILURE(SetUpTest()); }
   void TearDown() override { ASSERT_NO_FATAL_FAILURE(TearDownTest()); }
 
-  void TestSqlIngestUInt8() { GTEST_SKIP() << "Not implemented"; }
-  void TestSqlIngestUInt16() { GTEST_SKIP() << "Not implemented"; }
-  void TestSqlIngestUInt32() { GTEST_SKIP() << "Not implemented"; }
-  void TestSqlIngestUInt64() { GTEST_SKIP() << "Not implemented"; }
-
   void TestSqlPrepareErrorParamCountMismatch() { GTEST_SKIP() << "Not yet implemented"; }
-  void TestSqlPrepareGetParameterSchema() { GTEST_SKIP() << "Not yet implemented"; }
+
   void TestSqlPrepareSelectParams() { GTEST_SKIP() << "Not yet implemented"; }
 
   void TestConcurrentStatements() {
@@ -981,6 +1036,51 @@ class PostgresStatementTest : public ::testing::Test,
   PostgresQuirks quirks_;
 };
 ADBCV_TEST_STATEMENT(PostgresStatementTest)
+
+TEST_F(PostgresStatementTest, TransactionStatus) {
+  using adbc_validation::ConnectionGetOption;
+  const char* txn_status = "adbc.postgresql.transaction_status";
+  ASSERT_THAT(quirks()->DropTable(&connection, "txntest", &error), IsOkStatus(&error));
+
+  ASSERT_EQ("idle", ConnectionGetOption(&connection, txn_status, &error));
+
+  ASSERT_THAT(AdbcConnectionSetOption(&connection, ADBC_CONNECTION_OPTION_AUTOCOMMIT,
+                                      ADBC_OPTION_VALUE_DISABLED, &error),
+              IsOkStatus(&error));
+
+  ASSERT_EQ("intrans", ConnectionGetOption(&connection, txn_status, &error));
+
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  {
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, "SELECT 1", &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus(&error));
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+
+    ASSERT_EQ("active", ConnectionGetOption(&connection, txn_status, &error));
+
+    ASSERT_THAT(AdbcConnectionRollback(&connection, &error), IsOkStatus(&error));
+    ASSERT_EQ("intrans", ConnectionGetOption(&connection, txn_status, &error));
+  }
+  {
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, "SELECT 1", &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus(&error));
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+
+    ASSERT_EQ("active", ConnectionGetOption(&connection, txn_status, &error));
+
+    ASSERT_THAT(AdbcConnectionCommit(&connection, &error), IsOkStatus(&error));
+    ASSERT_EQ("intrans", ConnectionGetOption(&connection, txn_status, &error));
+  }
+}
 
 TEST_F(PostgresStatementTest, SqlIngestSchema) {
   const std::string schema_name = "testschema";
@@ -1139,10 +1239,11 @@ TEST_F(PostgresStatementTest, SqlIngestTimestampOverflow) {
                 IsOkStatus(&error));
     ASSERT_THAT(AdbcStatementPrepare(&statement, &error), IsOkStatus(&error));
     ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
-                IsStatus(ADBC_STATUS_INVALID_ARGUMENT, &error));
-    ASSERT_THAT(error.message,
-                ::testing::HasSubstr("Row #1 has value '9223372036854775807' which "
-                                     "exceeds PostgreSQL timestamp limits"));
+                IsStatus(ADBC_STATUS_INTERNAL, &error));
+    ASSERT_THAT(
+        error.message,
+        ::testing::HasSubstr(
+            "Row 0 timestamp value 9223372036854775807 with unit 0 would overflow"));
   }
 
   {
@@ -1169,10 +1270,185 @@ TEST_F(PostgresStatementTest, SqlIngestTimestampOverflow) {
                 IsOkStatus(&error));
     ASSERT_THAT(AdbcStatementPrepare(&statement, &error), IsOkStatus(&error));
     ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+                IsStatus(ADBC_STATUS_INTERNAL, &error));
+    ASSERT_THAT(
+        error.message,
+        ::testing::HasSubstr(
+            "Row 0 timestamp value -9223372036854775808 with unit 0 would overflow"));
+  }
+}
+
+TEST_F(PostgresStatementTest, SqlIngestJson) {
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  std::string drop = "DROP TABLE IF EXISTS jsontable";
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, drop.c_str(), &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  {
+    adbc_validation::Handle<struct ArrowSchema> schema;
+    adbc_validation::Handle<struct ArrowArray> batch;
+
+    ArrowSchemaInit(&schema.value);
+    ASSERT_THAT(ArrowSchemaSetTypeStruct(&schema.value, 1), adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_STRING),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetName(schema->children[0], "j"),
+                adbc_validation::IsOkErrno());
+
+    nanoarrow::UniqueBuffer buffer;
+    ASSERT_THAT(ArrowMetadataBuilderInit(buffer.get(), nullptr),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(
+        ArrowMetadataBuilderAppend(buffer.get(), ArrowCharView("ARROW:extension:name"),
+                                   ArrowCharView("arrow.json")),
+        adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetMetadata(schema->children[0],
+                                       reinterpret_cast<char*>(buffer->data)),
+                adbc_validation::IsOkErrno());
+
+    ASSERT_THAT((adbc_validation::MakeBatch<std::string>(
+                    &schema.value, &batch.value, static_cast<struct ArrowError*>(nullptr),
+                    {R"({"a": 1, "b": [1, 2, 3]})", std::nullopt})),
+                adbc_validation::IsOkErrno());
+
+    ASSERT_THAT(AdbcStatementSetOption(&statement, ADBC_INGEST_OPTION_TARGET_TABLE,
+                                       "jsontable", &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementSetOption(&statement, ADBC_INGEST_OPTION_MODE,
+                                       ADBC_INGEST_OPTION_MODE_CREATE, &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementBind(&statement, &batch.value, &schema.value, &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+                IsOkStatus(&error));
+  }
+
+  // Check round-trip
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, "SELECT * FROM jsontable", &error),
+              IsOkStatus(&error));
+  adbc_validation::StreamReader reader;
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                        &reader.rows_affected, &error),
+              IsOkStatus(&error));
+
+  ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+  ASSERT_EQ(1, reader.fields.size());
+  ASSERT_EQ(NANOARROW_TYPE_STRING, reader.fields[0].type);
+
+  ASSERT_NO_FATAL_FAILURE(reader.Next());
+  ArrowStringView view = ArrowArrayViewGetStringUnsafe(reader.array_view->children[0], 0);
+  std::string_view v(view.data, static_cast<size_t>(view.size_bytes));
+  ASSERT_EQ(R"({"a": 1, "b": [1, 2, 3]})", v);
+}
+
+// Ensure the table is actually created with the JSON type by trying to ingest
+// invalid JSON
+TEST_F(PostgresStatementTest, SqlIngestJsonInvalid) {
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  std::string drop = "DROP TABLE IF EXISTS jsontable";
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, drop.c_str(), &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  adbc_validation::Handle<struct ArrowSchema> schema;
+  adbc_validation::Handle<struct ArrowArray> batch;
+
+  ArrowSchemaInit(&schema.value);
+  ASSERT_THAT(ArrowSchemaSetTypeStruct(&schema.value, 1), adbc_validation::IsOkErrno());
+  ASSERT_THAT(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_STRING),
+              adbc_validation::IsOkErrno());
+  ASSERT_THAT(ArrowSchemaSetName(schema->children[0], "j"), adbc_validation::IsOkErrno());
+
+  nanoarrow::UniqueBuffer buffer;
+  ASSERT_THAT(ArrowMetadataBuilderInit(buffer.get(), nullptr),
+              adbc_validation::IsOkErrno());
+  ASSERT_THAT(
+      ArrowMetadataBuilderAppend(buffer.get(), ArrowCharView("ARROW:extension:name"),
+                                 ArrowCharView("arrow.json")),
+      adbc_validation::IsOkErrno());
+  ASSERT_THAT(
+      ArrowSchemaSetMetadata(schema->children[0], reinterpret_cast<char*>(buffer->data)),
+      adbc_validation::IsOkErrno());
+
+  ASSERT_THAT((adbc_validation::MakeBatch<std::string>(
+                  &schema.value, &batch.value, static_cast<struct ArrowError*>(nullptr),
+                  {R"({)", std::nullopt})),
+              adbc_validation::IsOkErrno());
+
+  ASSERT_THAT(AdbcStatementSetOption(&statement, ADBC_INGEST_OPTION_TARGET_TABLE,
+                                     "jsontable", &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementSetOption(&statement, ADBC_INGEST_OPTION_MODE,
+                                     ADBC_INGEST_OPTION_MODE_CREATE, &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementBind(&statement, &batch.value, &schema.value, &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsStatus(ADBC_STATUS_INVALID_ARGUMENT, &error));
+  ASSERT_THAT(error.message, ::testing::HasSubstr("invalid input syntax for type json"));
+}
+
+TEST_F(PostgresStatementTest, SqlIngestJsonb) {
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  std::string drop = "DROP TABLE IF EXISTS jsontable";
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, drop.c_str(), &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  drop = "CREATE TABLE jsontable (j JSONB)";
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, drop.c_str(), &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  {
+    adbc_validation::Handle<struct ArrowSchema> schema;
+    adbc_validation::Handle<struct ArrowArray> batch;
+
+    ArrowSchemaInit(&schema.value);
+    ASSERT_THAT(ArrowSchemaSetTypeStruct(&schema.value, 1), adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_STRING),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetName(schema->children[0], "j"),
+                adbc_validation::IsOkErrno());
+
+    nanoarrow::UniqueBuffer buffer;
+    ASSERT_THAT(ArrowMetadataBuilderInit(buffer.get(), nullptr),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(
+        ArrowMetadataBuilderAppend(buffer.get(), ArrowCharView("ARROW:extension:name"),
+                                   ArrowCharView("arrow.json")),
+        adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetMetadata(schema->children[0],
+                                       reinterpret_cast<char*>(buffer->data)),
+                adbc_validation::IsOkErrno());
+
+    ASSERT_THAT((adbc_validation::MakeBatch<std::string>(
+                    &schema.value, &batch.value, static_cast<struct ArrowError*>(nullptr),
+                    {R"({"a": 1, "b": [1, 2, 3]})", std::nullopt})),
+                adbc_validation::IsOkErrno());
+
+    ASSERT_THAT(AdbcStatementSetOption(&statement, ADBC_INGEST_OPTION_TARGET_TABLE,
+                                       "jsontable", &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementSetOption(&statement, ADBC_INGEST_OPTION_MODE,
+                                       ADBC_INGEST_OPTION_MODE_APPEND, &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementBind(&statement, &batch.value, &schema.value, &error),
+                IsOkStatus(&error));
+    // TODO(https://github.com/apache/arrow-adbc/issues/3293): we need a
+    // different extension type for JSONB so the driver can know to generate
+    // the appropriate COPY representation
+    // (JSON-representation-version-prefixed JSON string).
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
                 IsStatus(ADBC_STATUS_INVALID_ARGUMENT, &error));
-    ASSERT_THAT(error.message,
-                ::testing::HasSubstr("Row #1 has value '-9223372036854775808' which "
-                                     "exceeds PostgreSQL timestamp limits"));
   }
 }
 
@@ -1436,6 +1712,164 @@ TEST_F(PostgresStatementTest, ExecuteParameterizedQueryWithRowsAffected) {
   }
 }
 
+// Test for making sure empty string/binary parameters are inserted correct
+TEST_F(PostgresStatementTest, EmptyStringAndBinaryParameter) {
+  ASSERT_THAT(quirks()->DropTable(&connection, "adbc_test", &error), IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  // Create test table with both TEXT and BYTEA columns
+  {
+    ASSERT_THAT(AdbcStatementSetSqlQuery(
+                    &statement,
+                    "CREATE TABLE adbc_test (text_data TEXT, binary_data BYTEA)", &error),
+                IsOkStatus(&error));
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(
+        AdbcStatementExecuteQuery(&statement, &reader.stream.value, nullptr, &error),
+        IsOkStatus(&error));
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+    ASSERT_NO_FATAL_FAILURE(reader.Next());
+    ASSERT_EQ(reader.array->release, nullptr);
+  }
+
+  // Insert empty string and binary via parameters
+  {
+    nanoarrow::UniqueSchema schema_bind;
+    ArrowSchemaInit(schema_bind.get());
+    ASSERT_THAT(ArrowSchemaSetTypeStruct(schema_bind.get(), 2),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetType(schema_bind->children[0], NANOARROW_TYPE_STRING),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowSchemaSetType(schema_bind->children[1], NANOARROW_TYPE_BINARY),
+                adbc_validation::IsOkErrno());
+
+    nanoarrow::UniqueArray bind;
+    ASSERT_THAT(ArrowArrayInitFromSchema(bind.get(), schema_bind.get(), nullptr),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowArrayStartAppending(bind.get()), adbc_validation::IsOkErrno());
+
+    // Add one row with empty string and empty binary parameters
+    ASSERT_THAT(ArrowArrayAppendString(bind->children[0], ArrowCharView("")),
+                adbc_validation::IsOkErrno());
+    ArrowBufferView empty_buffer = {{nullptr}, 0};
+    ASSERT_THAT(ArrowArrayAppendBytes(bind->children[1], empty_buffer),
+                adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowArrayFinishElement(bind.get()), adbc_validation::IsOkErrno());
+    ASSERT_THAT(ArrowArrayFinishBuildingDefault(bind.get(), nullptr),
+                adbc_validation::IsOkErrno());
+
+    ASSERT_THAT(AdbcStatementSetSqlQuery(&statement,
+                                         "INSERT INTO adbc_test VALUES ($1, $2)", &error),
+                IsOkStatus(&error));
+    ASSERT_THAT(AdbcStatementBind(&statement, bind.get(), schema_bind.get(), &error),
+                IsOkStatus(&error));
+
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(
+        AdbcStatementExecuteQuery(&statement, &reader.stream.value, nullptr, &error),
+        IsOkStatus(&error));
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+    ASSERT_NO_FATAL_FAILURE(reader.Next());
+    ASSERT_EQ(reader.array->release, nullptr);
+  }
+
+  // Verify empty values were inserted correctly (not as NULL)
+  {
+    ASSERT_THAT(AdbcStatementSetSqlQuery(
+                    &statement, "SELECT text_data, binary_data FROM adbc_test", &error),
+                IsOkStatus(&error));
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(
+        AdbcStatementExecuteQuery(&statement, &reader.stream.value, nullptr, &error),
+        IsOkStatus(&error));
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+    ASSERT_NO_FATAL_FAILURE(reader.Next());
+    ASSERT_NE(reader.array->release, nullptr);
+    ASSERT_EQ(reader.array->length, 1);
+
+    // Row should contain empty values, not NULL
+    ASSERT_EQ(reader.array->children[0]->null_count, 0);  // text_data
+    ASSERT_EQ(reader.array->children[1]->null_count, 0);  // binary_data
+
+    // Check that both values are empty (string and binary)
+    // Check the single row
+    ASSERT_FALSE(ArrowArrayViewIsNull(reader.array_view->children[0], 0));
+    struct ArrowBufferView string_view =
+        ArrowArrayViewGetBytesUnsafe(reader.array_view->children[0], 0);
+    ASSERT_EQ(string_view.size_bytes, 0);  // Empty string should have size 0
+
+    ASSERT_FALSE(ArrowArrayViewIsNull(reader.array_view->children[1], 0));
+    struct ArrowBufferView binary_view =
+        ArrowArrayViewGetBytesUnsafe(reader.array_view->children[1], 0);
+    ASSERT_EQ(binary_view.size_bytes, 0);  // Empty binary should have size 0
+
+    ASSERT_NO_FATAL_FAILURE(reader.Next());
+    ASSERT_EQ(reader.array->release, nullptr);
+  }
+
+  ASSERT_THAT(AdbcStatementRelease(&statement, &error), IsOkStatus(&error));
+}
+
+TEST_F(PostgresStatementTest, SqlExecuteCopyZeroRowOutputError) {
+  ASSERT_THAT(quirks()->DropTable(&connection, "adbc_test", &error), IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  {
+    ASSERT_THAT(AdbcStatementSetSqlQuery(
+                    &statement, "CREATE TABLE adbc_test (id int primary key, data jsonb)",
+                    &error),
+                IsOkStatus(&error));
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus(&error));
+  }
+
+  {
+    ASSERT_THAT(
+        AdbcStatementSetSqlQuery(
+            &statement, "insert into adbc_test (id, data) values (1, null)", &error),
+        IsOkStatus(&error));
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus(&error));
+  }
+
+  {
+    ASSERT_THAT(
+        AdbcStatementSetSqlQuery(
+            &statement, "insert into adbc_test (id, data) values (2, '1')", &error),
+        IsOkStatus(&error));
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus(&error));
+  }
+
+  {
+    ASSERT_THAT(
+        AdbcStatementSetSqlQuery(&statement,
+                                 "SELECT id, data from adbc_test JOIN "
+                                 "jsonb_array_elements(adbc_test.data) AS foo ON true",
+                                 &error),
+        IsOkStatus(&error));
+    adbc_validation::StreamReader reader;
+    ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                          &reader.rows_affected, &error),
+                IsOkStatus());
+    ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+    ASSERT_EQ(reader.MaybeNext(), EINVAL);
+
+    AdbcStatusCode status = ADBC_STATUS_OK;
+    const struct AdbcError* detail =
+        AdbcErrorFromArrayStream(&reader.stream.value, &status);
+    ASSERT_NE(nullptr, detail);
+    ASSERT_EQ(ADBC_STATUS_INVALID_ARGUMENT, status);
+    ASSERT_EQ("22023", std::string_view(detail->sqlstate, 5));
+  }
+}
+
 TEST_F(PostgresStatementTest, BatchSizeHint) {
   ASSERT_THAT(quirks()->EnsureSampleTable(&connection, "batch_size_hint_test", &error),
               IsOkStatus(&error));
@@ -1482,24 +1916,25 @@ TEST_F(PostgresStatementTest, BatchSizeHint) {
 
 // Test that an ADBC 1.0.0-sized error still works
 TEST_F(PostgresStatementTest, AdbcErrorBackwardsCompatibility) {
-  // XXX: sketchy cast
-  auto* error = static_cast<struct AdbcError*>(malloc(ADBC_ERROR_1_0_0_SIZE));
-  std::memset(error, 0, ADBC_ERROR_1_0_0_SIZE);
+  struct AdbcError error;
+  std::memset(&error, 0, ADBC_ERROR_1_1_0_SIZE);
+  struct AdbcDriver canary;
+  error.private_data = &canary;
+  error.private_driver = &canary;
 
-  ASSERT_THAT(AdbcStatementNew(&connection, &statement, error), IsOkStatus(error));
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
   ASSERT_THAT(
-      AdbcStatementSetSqlQuery(&statement, "SELECT * FROM thistabledoesnotexist", error),
-      IsOkStatus(error));
+      AdbcStatementSetSqlQuery(&statement, "SELECT * FROM thistabledoesnotexist", &error),
+      IsOkStatus(&error));
   adbc_validation::StreamReader reader;
   ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
-                                        &reader.rows_affected, error),
-              IsStatus(ADBC_STATUS_NOT_FOUND, error));
-
-  ASSERT_EQ("42P01", std::string_view(error->sqlstate, 5));
-  ASSERT_EQ(0, AdbcErrorGetDetailCount(error));
-
-  error->release(error);
-  free(error);
+                                        &reader.rows_affected, &error),
+              IsStatus(ADBC_STATUS_NOT_FOUND, &error));
+  ASSERT_EQ("42P01", std::string_view(error.sqlstate, 5));
+  ASSERT_EQ(0, AdbcErrorGetDetailCount(&error));
+  ASSERT_EQ(&canary, error.private_data);
+  ASSERT_EQ(&canary, error.private_driver);
+  error.release(&error);
 }
 
 TEST_F(PostgresStatementTest, Cancel) {
@@ -1623,6 +2058,133 @@ TEST_F(PostgresStatementTest, SetUseCopyFalse) {
   ASSERT_EQ(reader.array->release, nullptr);
 }
 
+TEST_F(PostgresStatementTest, SqlQueryInt2vector) {
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  const char* query = R"(SELECT CAST('-1 42 0' AS int2vector) AS thevector;)";
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, query, &error), IsOkStatus(&error));
+
+  adbc_validation::StreamReader reader;
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                        &reader.rows_affected, &error),
+              IsOkStatus(&error));
+
+  reader.GetSchema();
+  ASSERT_EQ(reader.schema->n_children, 1);
+  ASSERT_STREQ(reader.schema->children[0]->format, "+l");
+  ASSERT_STREQ(reader.schema->children[0]->name, "thevector");
+  ASSERT_EQ(reader.schema->children[0]->n_children, 1);
+  ASSERT_STREQ(reader.schema->children[0]->children[0]->format, "s");
+
+  ASSERT_THAT(reader.MaybeNext(), adbc_validation::IsOkErrno());
+  ASSERT_EQ(reader.array->length, 1);
+  ASSERT_EQ(reader.array->n_children, 1);
+  ASSERT_EQ(reader.array->children[0]->null_count, 0);
+  const auto* offsets =
+      reinterpret_cast<const int32_t*>(reader.array->children[0]->buffers[1]);
+  ASSERT_EQ(offsets[0], 0);
+  ASSERT_EQ(offsets[1], 3);
+
+  ASSERT_EQ(reader.array->children[0]->children[0]->null_count, 0);
+  ASSERT_EQ(reader.array->children[0]->children[0]->length, 3);
+  const auto* data = reinterpret_cast<const int16_t*>(
+      reader.array->children[0]->children[0]->buffers[1]);
+  ASSERT_EQ(data[0], -1);
+  ASSERT_EQ(data[1], 42);
+  ASSERT_EQ(data[2], 0);
+
+  ASSERT_THAT(reader.MaybeNext(), adbc_validation::IsOkErrno());
+  ASSERT_EQ(reader.array->release, nullptr);
+}
+
+TEST_F(PostgresStatementTest, UnknownOid) {
+  // Regression test for https://github.com/apache/arrow-adbc/issues/2448
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementSetSqlQuery(
+                  &statement, "SELECT typacl FROM pg_type WHERE oid <= 6157", &error),
+              IsOkStatus(&error));
+  adbc_validation::StreamReader reader;
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                        &reader.rows_affected, &error),
+              IsOkStatus(&error));
+  ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+  ASSERT_EQ(1, reader.fields.size());
+  ASSERT_EQ(NANOARROW_TYPE_BINARY, reader.fields[0].type);
+  struct ArrowStringView extension_name = reader.fields[0].extension_name;
+  ASSERT_EQ("arrow.opaque",
+            std::string_view(extension_name.data,
+                             static_cast<size_t>(extension_name.size_bytes)));
+  struct ArrowStringView extension_metadata = reader.fields[0].extension_metadata;
+  ASSERT_EQ(R"({"type_name": "unnamed<oid:1034>", "vendor_name": "PostgreSQL"})",
+            std::string_view(extension_metadata.data,
+                             static_cast<size_t>(extension_metadata.size_bytes)));
+}
+
+TEST_F(PostgresStatementTest, SqlQueryJsonb) {
+  ASSERT_THAT(AdbcStatementNew(&connection, &statement, &error), IsOkStatus(&error));
+
+  // Setup table
+  ASSERT_THAT(AdbcStatementSetSqlQuery(
+                  &statement,
+                  "DROP TABLE IF EXISTS jsonbtest; CREATE TABLE jsonbtest (value JSONB);",
+                  &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  // Insert data
+  adbc_validation::Handle<struct ArrowSchema> schema;
+  adbc_validation::Handle<struct ArrowArray> batch;
+  ArrowSchemaInit(&schema.value);
+  ASSERT_THAT(ArrowSchemaSetTypeStruct(&schema.value, 1), adbc_validation::IsOkErrno());
+  ASSERT_THAT(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_STRING),
+              adbc_validation::IsOkErrno());
+  ASSERT_THAT(ArrowSchemaSetName(schema->children[0], "value"),
+              adbc_validation::IsOkErrno());
+
+  // We need the extension type for the driver to bind data properly
+  nanoarrow::UniqueBuffer buffer;
+  ASSERT_THAT(ArrowMetadataBuilderInit(buffer.get(), nullptr),
+              adbc_validation::IsOkErrno());
+  ASSERT_THAT(
+      ArrowMetadataBuilderAppend(buffer.get(), ArrowCharView("ARROW:extension:name"),
+                                 ArrowCharView("arrow.json")),
+      adbc_validation::IsOkErrno());
+  ASSERT_THAT(
+      ArrowSchemaSetMetadata(schema->children[0], reinterpret_cast<char*>(buffer->data)),
+      adbc_validation::IsOkErrno());
+
+  ASSERT_THAT((adbc_validation::MakeBatch<std::string>(
+                  &schema.value, &batch.value, static_cast<struct ArrowError*>(nullptr),
+                  {R"({"a": 1, "b": [1, 2, 3]})", std::nullopt})),
+              adbc_validation::IsOkErrno());
+
+  ASSERT_THAT(AdbcStatementSetSqlQuery(
+                  &statement, "INSERT INTO jsonbtest(value) VALUES ($1)", &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementBind(&statement, &batch.value, &schema.value, &error),
+              IsOkStatus(&error));
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, nullptr, nullptr, &error),
+              IsOkStatus(&error));
+
+  // Check round-trip
+  ASSERT_THAT(AdbcStatementSetSqlQuery(&statement, "SELECT * FROM jsonbtest", &error),
+              IsOkStatus(&error));
+  adbc_validation::StreamReader reader;
+  ASSERT_THAT(AdbcStatementExecuteQuery(&statement, &reader.stream.value,
+                                        &reader.rows_affected, &error),
+              IsOkStatus(&error));
+
+  ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
+  ASSERT_EQ(1, reader.fields.size());
+  ASSERT_EQ(NANOARROW_TYPE_STRING, reader.fields[0].type);
+
+  ASSERT_NO_FATAL_FAILURE(reader.Next());
+  ArrowStringView view = ArrowArrayViewGetStringUnsafe(reader.array_view->children[0], 0);
+  std::string_view v(view.data, static_cast<size_t>(view.size_bytes));
+  ASSERT_EQ(R"({"a": 1, "b": [1, 2, 3]})", v);
+}
+
 struct TypeTestCase {
   std::string name;
   std::string sql_type;
@@ -1719,7 +2281,7 @@ TEST_P(PostgresTypeTest, SelectValue) {
   // check type
   ASSERT_NO_FATAL_FAILURE(reader.GetSchema());
   ASSERT_NO_FATAL_FAILURE(adbc_validation::CompareSchema(
-      &reader.schema.value, {{std::nullopt, GetParam().arrow_type, true}}));
+      &reader.schema.value, {{"", GetParam().arrow_type, true}}));
   if (GetParam().arrow_type == NANOARROW_TYPE_TIMESTAMP) {
     if (GetParam().sql_type.find("WITH TIME ZONE") == std::string::npos) {
       ASSERT_STREQ(reader.schema->children[0]->format, "tsu:");

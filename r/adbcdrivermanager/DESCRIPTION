@@ -1,6 +1,6 @@
 Package: adbcdrivermanager
 Title: 'Arrow' Database Connectivity ('ADBC') Driver Manager
-Version: 0.13.0.9000
+Version: 0.20.0.9000
 Authors@R: c(
       person("Dewey", "Dunnington", , "dewey@dunnington.ca", role = c("aut", "cre"),
              comment = c(ORCID = "0000-0002-9415-4582")),
@@ -15,13 +15,13 @@ Description: Provides a developer-facing interface to 'Arrow' Database
 License: Apache License (>= 2)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.2
 Suggests:
     testthat (>= 3.0.0),
     withr
 Config/testthat/edition: 3
 Config/build/bootstrap: TRUE
-URL: https://github.com/apache/arrow-adbc, https://arrow.apache.org/adbc/current/r/adbcdrivermanager/
+URL: https://arrow.apache.org/adbc/current/r/adbcdrivermanager/, https://github.com/apache/arrow-adbc
 BugReports: https://github.com/apache/arrow-adbc/issues
 Imports:
     nanoarrow (>= 0.3.0)

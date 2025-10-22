@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <string>
 #include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 #include <nanoarrow/nanoarrow.hpp>
@@ -174,6 +176,14 @@ TEST(PostgresTypeTest, PostgresTypeSetSchema) {
                         &typnameMetadataValue);
   EXPECT_EQ(std::string(typnameMetadataValue.data, typnameMetadataValue.size_bytes),
             "numeric");
+  ArrowMetadataGetValue(schema->metadata, ArrowCharView("ARROW:extension:name"),
+                        &typnameMetadataValue);
+  EXPECT_EQ(std::string(typnameMetadataValue.data, typnameMetadataValue.size_bytes),
+            "arrow.opaque");
+  ArrowMetadataGetValue(schema->metadata, ArrowCharView("ARROW:extension:metadata"),
+                        &typnameMetadataValue);
+  EXPECT_EQ(std::string(typnameMetadataValue.data, typnameMetadataValue.size_bytes),
+            R"({"type_name": "numeric", "vendor_name": "PostgreSQL"})");
   schema.reset();
 
   ArrowSchemaInit(schema.get());
@@ -294,6 +304,24 @@ TEST(PostgresTypeTest, PostgresTypeFromSchema) {
   schema.reset();
 
   ArrowSchemaInit(schema.get());
+  ASSERT_EQ(ArrowSchemaSetTypeDateTime(schema.get(), NANOARROW_TYPE_TIMESTAMP,
+                                       NANOARROW_TIME_UNIT_MICRO, ""),
+            NANOARROW_OK);
+  EXPECT_EQ(PostgresType::FromSchema(resolver, schema.get(), &type, nullptr),
+            NANOARROW_OK);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kTimestamp);
+  schema.reset();
+
+  ArrowSchemaInit(schema.get());
+  ASSERT_EQ(ArrowSchemaSetTypeDateTime(schema.get(), NANOARROW_TYPE_TIMESTAMP,
+                                       NANOARROW_TIME_UNIT_MICRO, "America/Phoenix"),
+            NANOARROW_OK);
+  EXPECT_EQ(PostgresType::FromSchema(resolver, schema.get(), &type, nullptr),
+            NANOARROW_OK);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kTimestamptz);
+  schema.reset();
+
+  ArrowSchemaInit(schema.get());
   ASSERT_EQ(ArrowSchemaSetType(schema.get(), NANOARROW_TYPE_LIST), NANOARROW_OK);
   ASSERT_EQ(ArrowSchemaSetType(schema->children[0], NANOARROW_TYPE_BOOL), NANOARROW_OK);
   EXPECT_EQ(PostgresType::FromSchema(resolver, schema.get(), &type, nullptr),
@@ -312,11 +340,10 @@ TEST(PostgresTypeTest, PostgresTypeFromSchema) {
   schema.reset();
 
   ArrowError error;
-  ASSERT_EQ(ArrowSchemaInitFromType(schema.get(), NANOARROW_TYPE_INTERVAL_MONTH_DAY_NANO),
+  ASSERT_EQ(ArrowSchemaInitFromType(schema.get(), NANOARROW_TYPE_INTERVAL_MONTHS),
             NANOARROW_OK);
   EXPECT_EQ(PostgresType::FromSchema(resolver, schema.get(), &type, &error), ENOTSUP);
-  EXPECT_STREQ(error.message,
-               "Can't map Arrow type 'interval_month_day_nano' to Postgres type");
+  EXPECT_STREQ(error.message, "Can't map Arrow type 'interval_months' to Postgres type");
   schema.reset();
 }
 
@@ -329,6 +356,11 @@ TEST(PostgresTypeTest, PostgresTypeResolver) {
   // Check error for type not found
   EXPECT_EQ(resolver.Find(123, &type, &error), EINVAL);
   EXPECT_STREQ(ArrowErrorMessage(&error), "Postgres type with oid 123 not found");
+
+  EXPECT_EQ(resolver.FindWithDefault(123, &type), NANOARROW_OK);
+  EXPECT_EQ(type.oid(), 123);
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kUnnamedArrowOpaque);
+  EXPECT_EQ(type.typname(), "unnamed<oid:123>");
 
   // Check error for Array with unknown child
   item.oid = 123;
@@ -425,6 +457,20 @@ TEST(PostgresTypeTest, PostgresTypeResolveRecord) {
   EXPECT_EQ(type.child(0).type_id(), PostgresTypeId::kInt4);
   EXPECT_EQ(type.child(1).field_name(), "text_col");
   EXPECT_EQ(type.child(1).type_id(), PostgresTypeId::kText);
+}
+
+TEST(PostgresTypeTest, PostgresTypeResolveInt2vector) {
+  MockTypeResolver resolver;
+  ASSERT_EQ(resolver.Init(), NANOARROW_OK);
+
+  PostgresType type;
+
+  const auto int2vector_oid = resolver.GetOID(PostgresTypeId::kInt2vector);
+  EXPECT_EQ(resolver.Find(int2vector_oid, &type, nullptr), NANOARROW_OK);
+  EXPECT_EQ(type.oid(), int2vector_oid);
+  EXPECT_EQ(type.typname(), "int2vector");
+  EXPECT_EQ(type.type_id(), PostgresTypeId::kInt2vector);
+  EXPECT_EQ(0, type.n_children());
 }
 
 }  // namespace adbcpq

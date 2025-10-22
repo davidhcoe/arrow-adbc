@@ -1,6 +1,8 @@
 *.json
 *.Rproj
 *.Rd
+.codespell-dictionary
+.codespell-ignore
 c/subprojects/fmt.wrap
 c/subprojects/gtest.wrap
 c/subprojects/nanoarrow.wrap
@@ -20,6 +22,7 @@ csharp/*.props
 dev/release/rat_exclude_files.txt
 docs/source/format/*.drawio
 docs/source/format/*.svg
+docs/source/*/*.stdout.txt
 filtered_rat.txt
 go/adbc/drivermgr/arrow-adbc/adbc.h
 go/adbc/drivermgr/adbc_driver_manager.cc

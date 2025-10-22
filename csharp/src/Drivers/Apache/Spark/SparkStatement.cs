@@ -15,18 +15,12 @@
 * limitations under the License.
 */
 
-using System;
-using System.Collections.Generic;
-using System.Net.Http;
-using System.Threading;
-using System.Threading.Tasks;
 using Apache.Arrow.Adbc.Drivers.Apache.Hive2;
-using Apache.Arrow.Ipc;
 using Apache.Hive.Service.Rpc.Thrift;
 
 namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 {
-    public class SparkStatement : HiveServer2Statement
+    internal class SparkStatement : HiveServer2Statement
     {
         internal SparkStatement(SparkConnection connection)
             : base(connection)
@@ -35,95 +29,13 @@ namespace Apache.Arrow.Adbc.Drivers.Apache.Spark
 
         protected override void SetStatementProperties(TExecuteStatementReq statement)
         {
-            // TODO: Ensure this is set dynamically depending on server capabilities.
-            statement.EnforceResultPersistenceMode = false;
-            statement.ResultPersistenceMode = 2;
-
-            statement.CanReadArrowResult = true;
-            statement.CanDownloadResult = true;
-            statement.ConfOverlay = SparkConnection.timestampConfig;
-            statement.UseArrowNativeTypes = new TSparkArrowTypes
-            {
-                TimestampAsArrow = true,
-                DecimalAsArrow = true,
-
-                // set to false so they return as string
-                // otherwise, they return as ARRAY_TYPE but you can't determine
-                // the object type of the items in the array
-                ComplexTypesAsArrow = false,
-                IntervalTypesAsArrow = false,
-            };
+            // This seems like a good idea to have the server timeout so it doesn't keep processing unnecessarily.
+            // Set in combination with a CancellationToken.
+            statement.QueryTimeout = QueryTimeoutSeconds;
         }
 
-        protected override IArrowArrayStream NewReader<T>(T statement, Schema schema) => new SparkReader(statement, schema);
+        public override string AssemblyName => HiveServer2Connection.s_assemblyName;
 
-        /// <summary>
-        /// Provides the constant string key values to the <see cref="AdbcStatement.SetOption(string, string)" /> method.
-        /// </summary>
-        public new sealed class Options : HiveServer2Statement.Options
-        {
-            // options specific to Spark go here
-        }
-
-        sealed class SparkReader : IArrowArrayStream
-        {
-            HiveServer2Statement? statement;
-            Schema schema;
-            List<TSparkArrowBatch>? batches;
-            int index;
-            IArrowReader? reader;
-
-            public SparkReader(HiveServer2Statement statement, Schema schema)
-            {
-                this.statement = statement;
-                this.schema = schema;
-            }
-
-            public Schema Schema { get { return schema; } }
-
-            public async ValueTask<RecordBatch?> ReadNextRecordBatchAsync(CancellationToken cancellationToken = default)
-            {
-                while (true)
-                {
-                    if (this.reader != null)
-                    {
-                        RecordBatch? next = await this.reader.ReadNextRecordBatchAsync(cancellationToken);
-                        if (next != null)
-                        {
-                            return next;
-                        }
-                        this.reader = null;
-                    }
-
-                    if (this.batches != null && this.index < this.batches.Count)
-                    {
-                        this.reader = new ArrowStreamReader(new ChunkStream(this.schema, this.batches[this.index++].Batch));
-                        continue;
-                    }
-
-                    this.batches = null;
-                    this.index = 0;
-
-                    if (this.statement == null)
-                    {
-                        return null;
-                    }
-
-                    TFetchResultsReq request = new TFetchResultsReq(this.statement.operationHandle, TFetchOrientation.FETCH_NEXT, this.statement.BatchSize);
-                    TFetchResultsResp response = await this.statement.connection.client!.FetchResults(request, cancellationToken);
-                    this.batches = response.Results.ArrowBatches;
-
-                    if (!response.HasMoreRows)
-                    {
-                        this.statement = null;
-                    }
-                }
-            }
-
-            public void Dispose()
-            {
-            }
-        }
-
+        public override string AssemblyVersion => HiveServer2Connection.s_assemblyVersion;
     }
 }

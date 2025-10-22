@@ -30,16 +30,18 @@ on:
         required: false
         type: string
         default: ""
-  pull_request:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/verify.yml'
-      - 'dev/release/verify-release-candidate.sh'
-      - 'dev/release/verify-release-candidate.ps1'
+
+# Don't automatically run on pull requests.  While we're only using a
+# read-only token below, let's play it safe since we are running code out of
+# the given branch.
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    # 'bash' will expand to -eo pipefail
+    shell: bash
 
 jobs:
   binary-unix:
@@ -48,21 +50,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["macos-13", "macos-latest", "ubuntu-latest"]
+        os: ["macos-15-intel", "macos-latest", "ubuntu-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
       # No Docker on M1
       - name: Skip Binary Verifiction
         if: matrix.os == 'macos-latest'
-        shell: bash
         run: |
           echo "TEST_APT=0" | tee -a $GITHUB_ENV
           echo "TEST_YUM=0" | tee -a $GITHUB_ENV
       - name: Verify
-        shell: bash
         env:
           CI: "false"
           REPOSITORY: ${{ github.repository }}
@@ -70,6 +70,8 @@ jobs:
           TEST_BINARIES: "1"
           USE_CONDA: "1"
           VERBOSE: "1"
+          # Make this available to download_rc_binaries.py
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ./dev/release/verify-release-candidate.sh ${{ inputs.version }} ${{ inputs.rc }}
 
@@ -78,22 +80,20 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ["macos-13", "macos-latest", "ubuntu-latest", "windows-latest"]
+        os: ["macos-15-intel", "macos-latest", "ubuntu-latest", "windows-latest"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
           submodules: recursive
-      - uses: conda-incubator/setup-miniconda@v3
+      - uses: conda-incubator/setup-miniconda@835234971496cad1653abb28a638a281cf32541f  # v3.2.0
         # The Unix script will set up conda itself
         if: matrix.os == 'windows-latest'
         with:
-          miniforge-variant: Mambaforge
           miniforge-version: latest
           use-mamba: true
       - name: Work around ASAN issue (GH-1617)
-        shell: bash -l {0}
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo sysctl vm.mmap_rnd_bits=28
@@ -107,6 +107,12 @@ jobs:
           USE_CONDA: "1"
           VERBOSE: "1"
         run: |
+          # Rust uses a lot of disk space, free up some space
+          # https://github.com/actions/runner-images/issues/2840
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          # Required for macOS
+          export CXXFLAGS="${CXXFLAGS} -D_LIBCPP_DISABLE_AVAILABILITY"
+          echo "CXXFLAGS=${CXXFLAGS}"
           ./dev/release/verify-release-candidate.sh ${{ inputs.version }} ${{ inputs.rc }}
       - name: Verify
         if: matrix.os == 'windows-latest'

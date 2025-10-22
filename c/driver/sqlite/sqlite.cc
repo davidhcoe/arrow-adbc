@@ -15,19 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <cstdarg>
+#include <cstdio>
 #include <limits>
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <arrow-adbc/adbc.h>
-#include <nanoarrow/nanoarrow.h>
 #include <sqlite3.h>
 #include <nanoarrow/nanoarrow.hpp>
 
 #define ADBC_FRAMEWORK_USE_FMT
-#include "driver/common/options.h"
-#include "driver/common/utils.h"
 #include "driver/framework/base_driver.h"
-#include "driver/framework/catalog.h"
 #include "driver/framework/connection.h"
 #include "driver/framework/database.h"
 #include "driver/framework/statement.h"
@@ -51,6 +51,7 @@ constexpr std::string_view kConnectionOptionLoadExtensionEntrypoint =
     "adbc.sqlite.load_extension.entrypoint";
 /// The batch size for query results (and for initial type inference)
 constexpr std::string_view kStatementOptionBatchRows = "adbc.sqlite.query.batch_rows";
+constexpr std::string_view kStatementOptionBindByName = "adbc.statement.bind_by_name";
 
 std::string_view GetColumnText(sqlite3_stmt* stmt, int index) {
   return {
@@ -155,7 +156,7 @@ class SqliteQuery {
     return Close(rc);
   }
 
-  Status Close(int rc) {
+  Status Close(int last_rc) {
     if (stmt_) {
       int rc = sqlite3_finalize(stmt_);
       stmt_ = nullptr;
@@ -163,7 +164,7 @@ class SqliteQuery {
         return status::fmt::Internal("failed to execute: {}\nquery was: {}",
                                      sqlite3_errmsg(conn_), query_);
       }
-    } else if (rc != SQLITE_OK) {
+    } else if (last_rc != SQLITE_OK) {
       return status::fmt::Internal("failed to execute: {}\nquery was: {}",
                                    sqlite3_errmsg(conn_), query_);
     }
@@ -197,7 +198,7 @@ class SqliteQuery {
       UNWRAP_RESULT(bool has_row, q.Next());
       if (!has_row) break;
 
-      int rc = std::forward<RowFunc>(row_func)(q.stmt_);
+      rc = std::forward<RowFunc>(row_func)(q.stmt_);
       if (rc != SQLITE_OK) break;
     }
     return q.Close();
@@ -223,10 +224,6 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
     std::string query =
         "SELECT DISTINCT name FROM pragma_database_list() WHERE name LIKE ?";
 
-    this->table_filter = table_filter;
-    this->column_filter = column_filter;
-    this->table_types = table_types;
-
     UNWRAP_STATUS(SqliteQuery::Scan(
         conn, query,
         [&](sqlite3_stmt* stmt) {
@@ -250,14 +247,17 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
     return status::Ok();
   }
 
-  Status LoadCatalogs() override { return status::Ok(); };
+  Status LoadCatalogs(std::optional<std::string_view> catalog_filter) override {
+    return status::Ok();
+  };
 
   Result<std::optional<std::string_view>> NextCatalog() override {
     if (next_catalog >= catalogs.size()) return std::nullopt;
     return catalogs[next_catalog++];
   }
 
-  Status LoadSchemas(std::string_view catalog) override {
+  Status LoadSchemas(std::string_view catalog,
+                     std::optional<std::string_view> schema_filter) override {
     next_schema = 0;
     return status::Ok();
   };
@@ -267,7 +267,9 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
     return schemas[next_schema++];
   }
 
-  Status LoadTables(std::string_view catalog, std::string_view schema) override {
+  Status LoadTables(std::string_view catalog, std::string_view schema,
+                    std::optional<std::string_view> table_filter,
+                    const std::vector<std::string_view>& table_types) override {
     next_table = 0;
     tables.clear();
     if (!schema.empty()) return status::Ok();
@@ -310,12 +312,13 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
   }
 
   Status LoadColumns(std::string_view catalog, std::string_view schema,
-                     std::string_view table) override {
+                     std::string_view table,
+                     std::optional<std::string_view> column_filter) override {
     // XXX: pragma_table_info doesn't appear to work with bind parameters
     // XXX: because we're saving the SqliteQuery, we also need to save the string builder
     columns_query.Reset();
     columns_query.Append(
-        R"(SELECT cid, name, type, "notnull", dflt_value FROM pragma_table_info("%w" , "%w") WHERE NAME LIKE ?)",
+        R"(SELECT cid, name, type, 'notnull', dflt_value FROM pragma_table_info(%Q, %Q) WHERE NAME LIKE ?)",
         table.data(), catalog.data());
     UNWRAP_RESULT(auto query, columns_query.GetString());
     assert(!query.empty());
@@ -346,7 +349,7 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
     {
       SqliteStringBuilder builder;
       builder.Append(
-          R"(SELECT name FROM pragma_table_info("%w" , "%w") WHERE pk > 0 ORDER BY pk ASC)",
+          R"(SELECT name FROM pragma_table_info(%Q, %Q) WHERE pk > 0 ORDER BY pk ASC)",
           table.data(), catalog.data());
       UNWRAP_RESULT(auto pk_query, builder.GetString());
       std::vector<std::string> pk;
@@ -487,9 +490,6 @@ struct SqliteGetObjectsHelper : public driver::GetObjectsHelper {
   };
 
   sqlite3* conn = nullptr;
-  std::optional<std::string_view> table_filter;
-  std::optional<std::string_view> column_filter;
-  std::vector<std::string_view> table_types;
   std::vector<std::string> catalogs;
   std::vector<std::string> schemas;
   std::vector<std::pair<std::string, std::string>> tables;
@@ -601,8 +601,8 @@ class SqliteConnection : public driver::Connection<SqliteConnection> {
     nanoarrow::UniqueArrayStream stream;
     struct AdbcError error = ADBC_ERROR_INIT;
     AdbcStatusCode status =
-        AdbcSqliteExportReader(conn_, stmt, /*binder=*/NULL,
-                               /*batch_size=*/64, stream.get(), &error);
+        InternalAdbcSqliteExportReader(conn_, stmt, /*binder=*/NULL,
+                                       /*batch_size=*/64, stream.get(), &error);
     if (status == ADBC_STATUS_OK) {
       int code = stream->get_schema(stream.get(), schema);
       if (code != 0) {
@@ -764,11 +764,11 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
  public:
   [[maybe_unused]] constexpr static std::string_view kErrorPrefix = "[SQLite]";
 
-  Status BindImpl() {
+  Status BindImpl(bool ingest) {
     if (bind_parameters_.release) {
       struct AdbcError error = ADBC_ERROR_INIT;
-      if (AdbcStatusCode code =
-              AdbcSqliteBinderSetArrayStream(&binder_, &bind_parameters_, &error);
+      if (AdbcStatusCode code = InternalAdbcSqliteBinderSetArrayStream(
+              &binder_, &bind_parameters_, !ingest && bind_by_name_, &error);
           code != ADBC_STATUS_OK) {
         return Status::FromAdbc(code, error);
       }
@@ -777,7 +777,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
   }
 
   Result<int64_t> ExecuteIngestImpl(IngestState& state) {
-    UNWRAP_STATUS(BindImpl());
+    UNWRAP_STATUS(BindImpl(true));
     if (!binder_.schema.release) {
       return status::InvalidState("must Bind() before bulk ingestion");
     }
@@ -934,21 +934,26 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
     }
     assert(stmt != nullptr);
 
-    AdbcStatusCode status = ADBC_STATUS_OK;
+    AdbcStatusCode status_code = ADBC_STATUS_OK;
+    Status status = status::Ok();
     struct AdbcError error = ADBC_ERROR_INIT;
     while (true) {
       char finished = 0;
-      status = AdbcSqliteBinderBindNext(&binder_, conn_, stmt, &finished, &error);
-      if (status != ADBC_STATUS_OK || finished) break;
+      status_code =
+          InternalAdbcSqliteBinderBindNext(&binder_, conn_, stmt, &finished, &error);
+      if (status_code != ADBC_STATUS_OK || finished) {
+        status = Status::FromAdbc(status_code, error);
+        break;
+      }
 
       int rc = 0;
       do {
         rc = sqlite3_step(stmt);
       } while (rc == SQLITE_ROW);
       if (rc != SQLITE_DONE) {
-        SetError(&error, "failed to execute: %s\nquery was: %s", sqlite3_errmsg(conn_),
-                 insert.data());
-        status = ADBC_STATUS_INTERNAL;
+        status = status::fmt::Internal("failed to execute: {}\nquery was: {}",
+                                       sqlite3_errmsg(conn_), insert.data());
+        status_code = ADBC_STATUS_INTERNAL;
         break;
       }
       row_count++;
@@ -956,22 +961,22 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
     std::ignore = sqlite3_finalize(stmt);
 
     if (is_autocommit) {
-      if (status == ADBC_STATUS_OK) {
+      if (status_code == ADBC_STATUS_OK) {
         UNWRAP_STATUS(::adbc::sqlite::SqliteQuery::Execute(conn_, "COMMIT"));
       } else {
         UNWRAP_STATUS(::adbc::sqlite::SqliteQuery::Execute(conn_, "ROLLBACK"));
       }
     }
 
-    if (status != ADBC_STATUS_OK) {
-      return Status::FromAdbc(status, error);
+    if (status_code != ADBC_STATUS_OK) {
+      return status;
     }
     return row_count;
   }
 
   Result<int64_t> ExecuteQueryImpl(ArrowArrayStream* stream) {
     struct AdbcError error = ADBC_ERROR_INIT;
-    UNWRAP_STATUS(BindImpl());
+    UNWRAP_STATUS(BindImpl(false));
 
     const int64_t expected = sqlite3_bind_parameter_count(stmt_);
     const int64_t actual = binder_.schema.n_children;
@@ -980,9 +985,9 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
           "parameter count mismatch: expected {} but found {}", expected, actual);
     }
 
-    auto status =
-        AdbcSqliteExportReader(conn_, stmt_, binder_.schema.release ? &binder_ : nullptr,
-                               batch_size_, stream, &error);
+    auto status = InternalAdbcSqliteExportReader(
+        conn_, stmt_, binder_.schema.release ? &binder_ : nullptr, batch_size_, stream,
+        &error);
     if (status != ADBC_STATUS_OK) {
       return Status::FromAdbc(status, error);
     }
@@ -999,7 +1004,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
   }
 
   Result<int64_t> ExecuteUpdateImpl() {
-    UNWRAP_STATUS(BindImpl());
+    UNWRAP_STATUS(BindImpl(false));
 
     const int64_t expected = sqlite3_bind_parameter_count(stmt_);
     const int64_t actual = binder_.schema.n_children;
@@ -1008,7 +1013,8 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
           "parameter count mismatch: expected {} but found {}", expected, actual);
     }
 
-    int64_t rows = 0;
+    int64_t output_rows = 0;
+    int64_t changed_rows = 0;
 
     SqliteMutexGuard guard(conn_);
 
@@ -1016,10 +1022,10 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
       if (binder_.schema.release) {
         char finished = 0;
         struct AdbcError error = ADBC_ERROR_INIT;
-        if (AdbcStatusCode code =
-                AdbcSqliteBinderBindNext(&binder_, conn_, stmt_, &finished, &error);
+        if (AdbcStatusCode code = InternalAdbcSqliteBinderBindNext(&binder_, conn_, stmt_,
+                                                                   &finished, &error);
             code != ADBC_STATUS_OK) {
-          AdbcSqliteBinderRelease(&binder_);
+          InternalAdbcSqliteBinderRelease(&binder_);
           return Status::FromAdbc(code, error);
         } else if (finished != 0) {
           break;
@@ -1027,12 +1033,16 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
       }
 
       while (sqlite3_step(stmt_) == SQLITE_ROW) {
-        rows++;
+        output_rows++;
+      }
+
+      if (sqlite3_column_count(stmt_) == 0) {
+        changed_rows += sqlite3_changes(conn_);
       }
 
       if (!binder_.schema.release) break;
     }
-    AdbcSqliteBinderRelease(&binder_);
+    InternalAdbcSqliteBinderRelease(&binder_);
 
     if (sqlite3_reset(stmt_) != SQLITE_OK) {
       const char* msg = sqlite3_errmsg(conn_);
@@ -1041,9 +1051,10 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
     }
 
     if (sqlite3_column_count(stmt_) == 0) {
-      rows = sqlite3_changes(conn_);
+      return changed_rows;
+    } else {
+      return output_rows;
     }
-    return rows;
   }
 
   Result<int64_t> ExecuteUpdateImpl(PreparedState& state) { return ExecuteUpdateImpl(); }
@@ -1118,7 +1129,7 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
                                rc, sqlite3_errmsg(conn_));
       }
     }
-    AdbcSqliteBinderRelease(&binder_);
+    InternalAdbcSqliteBinderRelease(&binder_);
     return Statement::ReleaseImpl();
   }
 
@@ -1133,11 +1144,15 @@ class SqliteStatement : public driver::Statement<SqliteStatement> {
       }
       batch_size_ = static_cast<int>(batch_size);
       return status::Ok();
+    } else if (key == kStatementOptionBindByName) {
+      UNWRAP_RESULT(bind_by_name_, value.AsBool());
+      return status::Ok();
     }
     return Base::SetOptionImpl(key, std::move(value));
   }
 
   int batch_size_ = 1024;
+  bool bind_by_name_ = false;
   AdbcSqliteBinder binder_;
   sqlite3* conn_ = nullptr;
   sqlite3_stmt* stmt_ = nullptr;
@@ -1150,6 +1165,8 @@ using SqliteDriver =
 
 // Public names
 
+extern "C" {
+#if !defined(ADBC_NO_COMMON_ENTRYPOINTS)
 AdbcStatusCode AdbcDatabaseGetOption(struct AdbcDatabase* database, const char* key,
                                      char* value, size_t* length,
                                      struct AdbcError* error) {
@@ -1468,7 +1485,12 @@ AdbcStatusCode AdbcStatementExecutePartitions(struct AdbcStatement* statement,
       statement, schema, partitions, rows_affected, error);
 }
 
-extern "C" {
+[[maybe_unused]] ADBC_EXPORT AdbcStatusCode AdbcDriverInit(int version, void* raw_driver,
+                                                           AdbcError* error) {
+  return adbc::sqlite::SqliteDriver::Init(version, raw_driver, error);
+}
+#endif  // ADBC_NO_COMMON_ENTRYPOINTS
+
 [[maybe_unused]] ADBC_EXPORT AdbcStatusCode AdbcDriverSqliteInit(int version,
                                                                  void* raw_driver,
                                                                  AdbcError* error) {
@@ -1478,11 +1500,6 @@ extern "C" {
 [[maybe_unused]] ADBC_EXPORT AdbcStatusCode SqliteDriverInit(int version,
                                                              void* raw_driver,
                                                              AdbcError* error) {
-  return adbc::sqlite::SqliteDriver::Init(version, raw_driver, error);
-}
-
-[[maybe_unused]] ADBC_EXPORT AdbcStatusCode AdbcDriverInit(int version, void* raw_driver,
-                                                           AdbcError* error) {
   return adbc::sqlite::SqliteDriver::Init(version, raw_driver, error);
 }
 }

@@ -67,7 +67,7 @@ ${APT_INSTALL} \
 
 code_name="$(lsb_release --codename --short)"
 distribution="$(lsb_release --id --short | tr 'A-Z' 'a-z')"
-artifactory_base_url="https://apache.jfrog.io/artifactory/arrow/${distribution}"
+artifactory_base_url="https://packages.apache.org/artifactory/arrow/${distribution}"
 case "${TYPE}" in
   rc|staging-rc|staging-release)
     suffix=${TYPE%-release}
@@ -76,17 +76,11 @@ case "${TYPE}" in
 esac
 
 case "${distribution}-${code_name}" in
-  debian-bookworm)
-    sed \
-      -i"" \
-      -e "s/ main$/ main contrib non-free/g" \
-      /etc/apt/sources.list.d/debian.sources
-    ;;
   debian-*)
     sed \
       -i"" \
       -e "s/ main$/ main contrib non-free/g" \
-      /etc/apt/sources.list
+      /etc/apt/sources.list.d/debian.sources
     ;;
 esac
 
@@ -94,7 +88,7 @@ curl \
     --fail \
     --location \
     --remote-name \
-     https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+     https://packages.apache.org/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
 ${APT_INSTALL} ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
 
 if [ "${TYPE}" = "local" ]; then
@@ -117,15 +111,20 @@ fi
 if [ "${TYPE}" = "local" ]; then
   sed \
     -e "s,^URIs: .*$,URIs: file://${local_prefix}/apt/repositories/${distribution},g" \
-    -e "s,^Signed-By: .*$,Signed-By: /usr/share/keyrings/apache-arrow-adbc-apt-source.gpg,g" \
-    /etc/apt/sources.list.d/apache-arrow.sources > \
-    /etc/apt/sources.list.d/apache-arrow-adbc.sources
+    -e "s,^Signed-By: .*$,Signed-By: /usr/share/keyrings/apache-arrow-adbc-apt-source.asc,g" \
+    /etc/apt/sources.list.d/apache-arrow.sources |
+      tee /etc/apt/sources.list.d/apache-arrow-adbc.sources
   keys="${local_prefix}/KEYS"
   if [ -f "${keys}" ]; then
     gpg \
       --no-default-keyring \
-      --keyring /usr/share/keyrings/apache-arrow-adbc-apt-source.gpg \
+      --keyring /tmp/apache-arrow-adbc-apt-source.kbx \
       --import "${keys}"
+    gpg \
+      --no-default-keyring \
+      --keyring /tmp/apache-arrow-adbc-apt-source.kbx \
+      --armor \
+      --export > /usr/share/keyrings/apache-arrow-adbc-apt-source.asc
   fi
 else
   case "${TYPE}" in

@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import datetime
 import string
 from pathlib import Path
 from typing import Generator
@@ -24,7 +25,7 @@ import pyarrow
 import pyarrow.dataset
 import pytest
 
-from adbc_driver_postgresql import StatementOptions, dbapi
+from adbc_driver_postgresql import ConnectionOptions, StatementOptions, dbapi
 
 
 @pytest.fixture
@@ -190,11 +191,13 @@ def test_stmt_ingest(postgres: dbapi.Connection) -> None:
         cur.adbc_ingest("test_ingest", table, mode="replace")
         cur.execute("SELECT * FROM test_ingest ORDER BY ints")
         assert cur.fetch_arrow_table() == table
+        postgres.commit()
 
         with pytest.raises(
             postgres.ProgrammingError, match='"test_ingest" already exists'
         ):
             cur.adbc_ingest("test_ingest", table, mode="create")
+        postgres.rollback()
 
         cur.adbc_ingest("test_ingest", table, mode="create_append")
         cur.execute("SELECT * FROM test_ingest ORDER BY ints")
@@ -267,6 +270,36 @@ def test_stmt_ingest_multi(postgres: dbapi.Connection) -> None:
             table.to_batches(max_chunksize=2),
             mode="create_append",
         )
+        cur.execute("SELECT * FROM test_ingest ORDER BY ints")
+        assert cur.fetch_arrow_table() == table
+
+
+def test_stmt_ingest_timestamptz(postgres: dbapi.Connection) -> None:
+    # Regression test for https://github.com/apache/arrow-adbc/issues/2901
+    table = pyarrow.table(
+        [
+            [1],
+            [datetime.datetime(2023, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc)],
+        ],
+        names=["ints", "tstz"],
+    )
+
+    with postgres.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS test_ingest")
+        # Make sure we aren't in UTC time zone
+        cur.execute("SET TIME ZONE 'Asia/Tokyo'")
+        postgres.commit()
+
+        cur.execute("SELECT current_setting('TIMEZONE')")
+        assert cur.fetchone() == ("Asia/Tokyo",)
+
+        cur.adbc_ingest(
+            "test_ingest",
+            table,
+            mode="create",
+        )
+        postgres.commit()
+
         cur.execute("SELECT * FROM test_ingest ORDER BY ints")
         assert cur.fetch_arrow_table() == table
 
@@ -424,3 +457,61 @@ def test_ingest_large(postgres: dbapi.Connection) -> None:
     table = pyarrow.Table.from_batches([batch] * 4)
     with postgres.cursor() as cur:
         cur.adbc_ingest("test_ingest_large", table, mode="replace")
+
+
+def test_timestamp_txn(postgres: dbapi.Connection) -> None:
+    """Regression test for #2410."""
+    ts = datetime.datetime.now()
+    ts_with_tz = datetime.datetime.now(tz=datetime.timezone.utc)
+
+    with postgres.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS ts_txn")
+        cur.execute("CREATE TABLE ts_txn (ts TIMESTAMP WITH TIME ZONE);")
+    postgres.commit()
+
+    with postgres.cursor() as cur:
+        cur.execute("INSERT INTO ts_txn VALUES ($1)", parameters=[ts])
+        cur.execute("SELECT pg_current_xact_id_if_assigned()")
+        assert cur.fetchone() != (None,)
+    postgres.commit()
+
+    with postgres.cursor() as cur:
+        cur.execute("INSERT INTO ts_txn VALUES ($1)", parameters=[ts_with_tz])
+        cur.execute("SELECT pg_current_xact_id_if_assigned()")
+        assert cur.fetchone() != (None,)
+    postgres.commit()
+
+
+def test_txn_status(postgres: dbapi.Connection) -> None:
+    def status() -> str:
+        return postgres.adbc_connection.get_option(
+            ConnectionOptions.TRANSACTION_STATUS.value
+        )
+
+    assert status() == "intrans"
+    postgres.rollback()
+    assert status() == "intrans"
+
+    with postgres.cursor() as cur:
+        cur.execute("SELECT 1")
+        assert status() == "active"
+        postgres.commit()
+        assert status() == "intrans"
+        cur.execute("SELECT 1")
+        assert status() == "active"
+        postgres.rollback()
+        assert status() == "intrans"
+
+
+def test_connect_conn_kwargs_db_schema(postgres_uri: str, postgres: dbapi.Connection):
+    """Verify current DB schema can be set via conn_kwargs."""
+    schema_key = "adbc.connection.db_schema"
+    schema_name = "dbapi_test_schema_via_option"
+
+    with postgres.cursor() as cur:
+        cur.execute(f"DROP SCHEMA IF EXISTS {schema_name} CASCADE")
+        cur.execute(f"CREATE SCHEMA {schema_name}")
+    postgres.commit()
+    with dbapi.connect(postgres_uri, conn_kwargs={schema_key: schema_name}) as conn:
+        option_value = conn.adbc_connection.get_option(schema_key)
+        assert option_value == schema_name

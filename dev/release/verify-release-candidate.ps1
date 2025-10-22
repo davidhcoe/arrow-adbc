@@ -114,7 +114,7 @@ echo "Using $($ArrowSourceDir)"
 
 Show-Header "Create Conda Environment"
 
-mamba create -c conda-forge -f -y -p $(Join-Path $ArrowTempDir conda-env) `
+mamba create -c conda-forge --yes --prefix $(Join-Path $ArrowTempDir conda-env) `
   --file $(Join-Path $ArrowSourceDir ci\conda_env_cpp.txt) `
   --file $(Join-Path $ArrowSourceDir ci\conda_env_python.txt) `
   go `
@@ -140,6 +140,7 @@ New-Item -ItemType Directory -Force -Path $CppBuildDir | Out-Null
 # XXX(apache/arrow-adbc#634): not working on Windows due to it picking
 # up MSVC as the C compiler, which then blows up when /Werror gets
 # passed in by some package
+$env:BUILD_DRIVER_BIGQUERY = "0"
 $env:BUILD_DRIVER_FLIGHTSQL = "0"
 $env:BUILD_DRIVER_SNOWFLAKE = "0"
 

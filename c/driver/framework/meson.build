@@ -17,10 +17,7 @@
 
 adbc_framework_lib = library(
     'adbc_driver_framework',
-    sources: [
-        'catalog.cc',
-        'objects.cc',
-    ],
+    sources: ['objects.cc', 'utility.cc'],
     include_directories: [include_dir, c_dir],
     link_with: [adbc_common_lib],
     dependencies: [nanoarrow_dep, fmt_dep],

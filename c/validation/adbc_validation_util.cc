@@ -16,6 +16,11 @@
 // under the License.
 
 #include "adbc_validation_util.h"
+
+#include <string>
+#include <utility>
+#include <vector>
+
 #include <arrow-adbc/adbc.h>
 
 #include "adbc_validation.h"
@@ -165,16 +170,53 @@ void IsAdbcStatusCode::DescribeNegationTo(std::ostream* os) const {
     }                                                 \
   } while (false);
 
+static int MakeSchemaColumnImpl(struct ArrowSchema* column, const SchemaField& field) {
+  switch (field.type) {
+    case NANOARROW_TYPE_FIXED_SIZE_BINARY:
+    case NANOARROW_TYPE_FIXED_SIZE_LIST:
+      CHECK_ERRNO(ArrowSchemaSetTypeFixedSize(column, field.type, field.fixed_size));
+      break;
+    default:
+      CHECK_ERRNO(ArrowSchemaSetType(column, field.type));
+      break;
+  }
+
+  CHECK_ERRNO(ArrowSchemaSetName(column, field.name.c_str()));
+
+  if (!field.nullable) {
+    column->flags &= ~ARROW_FLAG_NULLABLE;
+  }
+
+  if (static_cast<size_t>(column->n_children) != field.children.size()) {
+    return EINVAL;
+  }
+
+  switch (field.type) {
+    // SetType for a list will allocate and initialize children
+    case NANOARROW_TYPE_LIST:
+    case NANOARROW_TYPE_LARGE_LIST:
+    case NANOARROW_TYPE_FIXED_SIZE_LIST:
+    case NANOARROW_TYPE_MAP: {
+      size_t i = 0;
+      for (const SchemaField& child : field.children) {
+        CHECK_ERRNO(MakeSchemaColumnImpl(column->children[i], child));
+        ++i;
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return 0;
+}
+
 int MakeSchema(struct ArrowSchema* schema, const std::vector<SchemaField>& fields) {
   ArrowSchemaInit(schema);
   CHECK_ERRNO(ArrowSchemaSetTypeStruct(schema, fields.size()));
   size_t i = 0;
   for (const SchemaField& field : fields) {
-    CHECK_ERRNO(ArrowSchemaSetType(schema->children[i], field.type));
-    CHECK_ERRNO(ArrowSchemaSetName(schema->children[i], field.name.c_str()));
-    if (!field.nullable) {
-      schema->children[i]->flags &= ~ARROW_FLAG_NULLABLE;
-    }
+    CHECK_ERRNO(MakeSchemaColumnImpl(schema->children[i], field));
     i++;
   }
   return 0;
@@ -244,9 +286,7 @@ void MakeStream(struct ArrowArrayStream* stream, struct ArrowSchema* schema,
   stream->private_data = new ConstantArrayStream(schema, std::move(batches));
 }
 
-void CompareSchema(
-    struct ArrowSchema* schema,
-    const std::vector<std::tuple<std::optional<std::string>, ArrowType, bool>>& fields) {
+void CompareSchema(struct ArrowSchema* schema, const std::vector<SchemaField>& fields) {
   struct ArrowError na_error;
   struct ArrowSchemaView view;
 
@@ -261,12 +301,11 @@ void CompareSchema(
     struct ArrowSchemaView field_view;
     ASSERT_THAT(ArrowSchemaViewInit(&field_view, schema->children[i], &na_error),
                 IsOkErrno(&na_error));
-    ASSERT_EQ(std::get<1>(fields[i]), field_view.type);
-    ASSERT_EQ(std::get<2>(fields[i]),
-              (schema->children[i]->flags & ARROW_FLAG_NULLABLE) != 0)
+    ASSERT_EQ(fields[i].type, field_view.type);
+    ASSERT_EQ(fields[i].nullable, (schema->children[i]->flags & ARROW_FLAG_NULLABLE) != 0)
         << "Nullability mismatch";
-    if (std::get<0>(fields[i]).has_value()) {
-      ASSERT_STRCASEEQ(std::get<0>(fields[i])->c_str(), schema->children[i]->name);
+    if (fields[i].name != "") {
+      ASSERT_STRCASEEQ(fields[i].name.c_str(), schema->children[i]->name);
     }
   }
 }
@@ -281,7 +320,7 @@ std::string GetDriverVendorVersion(struct AdbcConnection* connection) {
   reader.GetSchema();
   if (error.release) {
     error.release(&error);
-    throw std::runtime_error("error occured calling AdbcConnectionGetInfo!");
+    throw std::runtime_error("error occurred calling AdbcConnectionGetInfo!");
   }
 
   reader.Next();

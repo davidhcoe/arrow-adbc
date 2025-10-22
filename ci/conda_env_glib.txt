@@ -15,9 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-arrow-c-glib=15.0.2
+arrow-c-glib
 glib
 gobject-introspection
 meson
 postgresql
 ruby
+setuptools
