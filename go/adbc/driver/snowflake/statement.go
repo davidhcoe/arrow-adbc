@@ -58,7 +58,7 @@ type statement struct {
 	prefetchConcurrency   int
 	useHighPrecision      bool
 	maxTimestampPrecision MaxTimestampPrecision
-        statementCount        int
+	statementCount        int
 
 	query         string
 	targetTable   string
@@ -178,7 +178,7 @@ func (st *statement) SetOption(key string, val string) error {
 				Code: adbc.StatusInvalidArgument,
 			}
 		}
-		return st.SetOptionInt(key, int64(size))
+		return st.SetOptionInt(key, int64(intVal))
 	case OptionStatementQueryTag:
 		st.queryTag = val
 		return nil
