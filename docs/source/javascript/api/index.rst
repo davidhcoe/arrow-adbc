@@ -15,18 +15,9 @@
 .. specific language governing permissions and limitations
 .. under the License.
 
-==========
-JavaScript
-==========
+========================
+JavaScript API Reference
+========================
 
-Experimental JavaScript/TypeScript bindings to the :doc:`Rust driver manager
-</rust/driver_manager>`. Built with `NAPI-RS <https://napi.rs/>`_. Compatible
-with `Node.js <https://nodejs.org/en>`_ 22+, `Deno <https://deno.com/>`_ 2.0+, and `Bun
-<https://bun.sh/>`_ 1.1+.
-
-.. toctree::
-   :maxdepth: 2
-
-   quickstart
-   driver_manager
-   api/index
+This is a stub page for the TypeDoc API reference. If you're seeing this page,
+it means that the actual TypeDoc output was not generated.
